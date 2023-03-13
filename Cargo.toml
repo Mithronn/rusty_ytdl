@@ -7,6 +7,7 @@ description = "A Rust library for Youtube video downloader"
 repository = "https://github.com/Mithronn/rusty-ytdl"
 readme = "README.md"
 license-file = "LICENSE"
+keywords = ["youtube", "downloader", "ytdl"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
