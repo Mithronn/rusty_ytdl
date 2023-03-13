@@ -5,7 +5,7 @@
 
 Youtube downloading module. Written with pure Rust.
 
-#Usage
+# Usage
 
 ```rust,ignore
 use rusty_ytdl::info::get_info;
