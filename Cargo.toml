@@ -5,7 +5,7 @@ authors = ["Mithronn"]
 edition = "2021"
 description = "A Rust library for Youtube video downloader"
 repository = "https://github.com/Mithronn/rusty-ytdl"
-readme = "README"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
