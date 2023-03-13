@@ -1,7 +1,11 @@
 [package]
 name = "rusty-ytdl"
 version = "0.1.0"
+authors = ["Mithronn"]
 edition = "2021"
+description = "Youtube video downloader"
+repository = "https://github.com/Mithronn/rusty-ytdl"
+readme = "README"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
