@@ -1,9 +1,9 @@
 [package]
-name = "rusty-ytdl"
+name = "rusty_ytdl"
 version = "0.1.0"
 authors = ["Mithronn"]
 edition = "2021"
-description = "Youtube video downloader"
+description = "A Rust library for Youtube video downloader"
 repository = "https://github.com/Mithronn/rusty-ytdl"
 readme = "README"
 

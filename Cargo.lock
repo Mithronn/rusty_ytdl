@@ -1084,7 +1084,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "rusty-ytdl"
+name = "rusty_v8"
+version = "0.22.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa03778bb7866d8320fc3dd5e6be52929dc10f729ae5e61ea2fbce385a4595d2"
+dependencies = [
+ "bitflags",
+ "fslock",
+ "lazy_static",
+ "libc",
+ "which",
+]
+
+[[package]]
+name = "rusty_ytdl"
 version = "0.1.0"
 dependencies = [
  "js-sandbox",
@@ -1099,19 +1112,6 @@ dependencies = [
  "url",
  "urlencoding",
  "xml_oxide",
-]
-
-[[package]]
-name = "rusty_v8"
-version = "0.22.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa03778bb7866d8320fc3dd5e6be52929dc10f729ae5e61ea2fbce385a4595d2"
-dependencies = [
- "bitflags",
- "fslock",
- "lazy_static",
- "libc",
- "which",
 ]
 
 [[package]]

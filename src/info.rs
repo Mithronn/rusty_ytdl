@@ -121,7 +121,7 @@ pub async fn get_basic_info(
             get_functions(html5player, &client).await,
         )
         .unwrap_or(vec![]),
-        related_videos: get_related_videos(&initial_response_clone).unwrap(),
+        related_videos: get_related_videos(&initial_response_clone).unwrap_or(vec![]),
         video_details,
     };
 
