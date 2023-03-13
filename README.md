@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/v/rusty__ytdl.svg)](https://crates.io/crates/rusty_ytdl)
 [![Released API docs](https://img.shields.io/badge/docs.rs-rusty__ytdl-C36241)](https://docs.rs/rusty_ytdl)
 
-Youtube downloading module. Written with pure rust.
+Youtube downloading module. Written with pure Rust.
 
 #Usage
 
@@ -51,10 +51,10 @@ Generated download links are valid for 6 hours, and may only be downloadable fro
 # Installation
 
 ```bash
-cargo add rusty-ytdl
+cargo add rusty_ytdl
 ```
 
-Or add the following to your `Cargo.toml file:
+Or add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
