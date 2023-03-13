@@ -2,33 +2,14 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use urlencoding::decode;
 
+use crate::constants::{
+    AGE_RESTRICTED_URLS, AUDIO_ENCODING_RANKS, BASE_URL, VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
+};
 use crate::info_extras::{get_author, get_chapters, get_dislikes, get_likes, get_storyboards};
-use crate::{Embed, StringUtils, Thumbnail, VideoDetails, VideoQuality, VideoSearchOptions};
-use crate::{VideoOptions, BASE_URL};
-
-const VALID_QUERY_DOMAINS: &'static [&str] = &[
-    "youtube.com",
-    "www.youtube.com",
-    "m.youtube.com",
-    "music.youtube.com",
-    "gaming.youtube.com",
-];
-
-const AGE_RESTRICTED_URLS: &'static [&str] = &[
-    "support.google.com/youtube/?p=age_restrictions",
-    "youtube.com/t/community_guidelines",
-];
-
-const AUDIO_ENCODING_RANKS: &'static [&str] = &["mp4a", "mp3", "vorbis", "aac", "opus", "flac"];
-const VIDEO_ENCODING_RANKS: &'static [&str] = &[
-    "mp4v",
-    "avc1",
-    "Sorenson H.283",
-    "MPEG-4 Visual",
-    "VP8",
-    "VP9",
-    "H.264",
-];
+use crate::structs::{
+    Embed, FormatError, StringUtils, Thumbnail, VideoDetails, VideoOptions, VideoQuality,
+    VideoSearchOptions,
+};
 
 pub fn get_cver(info: &serde_json::Value) -> &str {
     info.get("responseContext")
@@ -88,7 +69,7 @@ pub fn get_html5player(body: &str) -> Option<String> {
 
 pub fn parse_video_formats(
     info: &serde_json::Value,
-    format_functions: Vec<String>,
+    format_functions: Vec<(String, String)>,
 ) -> Option<Vec<serde_json::Value>> {
     if info.as_object()?.contains_key("streamingData") {
         let formats = info
@@ -115,102 +96,7 @@ pub fn parse_video_formats(
                 x.insert("url".to_string(), new_url);
 
                 // Add Video metaData
-                if x.contains_key("qualityLabel") {
-                    x.insert("hasVideo".to_owned(), serde_json::Value::Bool(true));
-                }
-
-                if x.contains_key("audioBitrate") || x.contains_key("audioQuality") {
-                    x.insert("hasAudio".to_owned(), serde_json::Value::Bool(true));
-                }
-
-                if x.contains_key("mimeType") {
-                    let container_value_arr = x
-                        .get("mimeType")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .split(";")
-                        .collect::<Vec<&str>>()
-                        .get(0)
-                        .unwrap_or(&"")
-                        .split("/")
-                        .collect::<Vec<&str>>();
-
-                    let container_value = container_value_arr.get(1).unwrap_or(&"");
-
-                    if !container_value.is_empty() {
-                        x.insert("container".to_owned(), serde_json::json!(container_value));
-                    }
-
-                    let codecs_value = between(
-                        x.get("mimeType").and_then(|x| x.as_str()).unwrap_or(""),
-                        r#"codecs=""#,
-                        r#"""#,
-                    );
-
-                    if !codecs_value.is_empty() {
-                        x.insert("codecs".to_string(), serde_json::json!(codecs_value));
-                    }
-                }
-
-                if x.contains_key("hasVideo") && x.contains_key("codecs") {
-                    let video_codec_value = x
-                        .get("codecs")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .split(", ")
-                        .collect::<Vec<&str>>()[0];
-
-                    if !video_codec_value.is_empty() {
-                        x.insert(
-                            "videoCodec".to_string(),
-                            serde_json::json!(video_codec_value),
-                        );
-                    }
-                }
-
-                if x.contains_key("hasAudio") && x.contains_key("codecs") {
-                    let audio_codec_value_arr = x
-                        .get("codecs")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .split(", ")
-                        .collect::<Vec<&str>>();
-
-                    let audio_codec_value = audio_codec_value_arr.last().unwrap_or(&"");
-
-                    if !audio_codec_value.is_empty() {
-                        x.insert(
-                            "audioCodec".to_string(),
-                            serde_json::json!(audio_codec_value),
-                        );
-                    }
-                }
-
-                let regex_is_live = Regex::new(r"\bsource[/=]yt_live_broadcast\b").unwrap();
-                let regex_is_hls = Regex::new(r"/manifest/hls_(variant|playlist)/").unwrap();
-                let regex_is_dashmpd = Regex::new(r"/manifest/dash/").unwrap();
-
-                x.insert(
-                    "isLive".to_string(),
-                    serde_json::Value::Bool(
-                        regex_is_live.is_match(x.get("url").and_then(|x| x.as_str()).unwrap_or("")),
-                    ),
-                );
-
-                x.insert(
-                    "isHLS".to_string(),
-                    serde_json::Value::Bool(
-                        regex_is_hls.is_match(x.get("url").and_then(|x| x.as_str()).unwrap_or("")),
-                    ),
-                );
-
-                x.insert(
-                    "isDashMPD".to_string(),
-                    serde_json::Value::Bool(
-                        regex_is_dashmpd
-                            .is_match(x.get("url").and_then(|x| x.as_str()).unwrap_or("")),
-                    ),
-                );
+                add_format_meta(x);
 
                 Some(x)
             });
@@ -222,28 +108,117 @@ pub fn parse_video_formats(
     }
 }
 
-pub fn filter_formats<'a>(
-    formats: &'a Vec<serde_json::Value>,
-    options: &'a VideoOptions,
-) -> Vec<&'a serde_json::Value> {
-    match options.filter {
+pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) {
+    if format.contains_key("qualityLabel") {
+        format.insert("hasVideo".to_owned(), serde_json::Value::Bool(true));
+    }
+
+    if format.contains_key("audioBitrate") || format.contains_key("audioQuality") {
+        format.insert("hasAudio".to_owned(), serde_json::Value::Bool(true));
+    }
+
+    if format.contains_key("mimeType") {
+        let container_value_arr = format
+            .get("mimeType")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .split(";")
+            .collect::<Vec<&str>>()
+            .get(0)
+            .unwrap_or(&"")
+            .split("/")
+            .collect::<Vec<&str>>();
+
+        let container_value = container_value_arr.get(1).unwrap_or(&"");
+
+        if !container_value.is_empty() {
+            format.insert("container".to_owned(), serde_json::json!(container_value));
+        }
+
+        let codecs_value = between(
+            format
+                .get("mimeType")
+                .and_then(|x| x.as_str())
+                .unwrap_or(""),
+            r#"codecs=""#,
+            r#"""#,
+        );
+
+        if !codecs_value.is_empty() {
+            format.insert("codecs".to_string(), serde_json::json!(codecs_value));
+        }
+    }
+
+    if format.contains_key("hasVideo") && format.contains_key("codecs") {
+        let video_codec_value = format
+            .get("codecs")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .split(", ")
+            .collect::<Vec<&str>>()[0];
+
+        if !video_codec_value.is_empty() {
+            format.insert(
+                "videoCodec".to_string(),
+                serde_json::json!(video_codec_value),
+            );
+        }
+    }
+
+    if format.contains_key("hasAudio") && format.contains_key("codecs") {
+        let audio_codec_value_arr = format
+            .get("codecs")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .split(", ")
+            .collect::<Vec<&str>>();
+
+        let audio_codec_value = audio_codec_value_arr.last().unwrap_or(&"");
+
+        if !audio_codec_value.is_empty() {
+            format.insert(
+                "audioCodec".to_string(),
+                serde_json::json!(audio_codec_value),
+            );
+        }
+    }
+
+    let regex_is_live = Regex::new(r"\bsource[/=]yt_live_broadcast\b").unwrap();
+    let regex_is_hls = Regex::new(r"/manifest/hls_(variant|playlist)/").unwrap();
+    let regex_is_dashmpd = Regex::new(r"/manifest/dash/").unwrap();
+
+    format.insert(
+        "isLive".to_string(),
+        serde_json::Value::Bool(
+            regex_is_live.is_match(format.get("url").and_then(|x| x.as_str()).unwrap_or("")),
+        ),
+    );
+
+    format.insert(
+        "isHLS".to_string(),
+        serde_json::Value::Bool(
+            regex_is_hls.is_match(format.get("url").and_then(|x| x.as_str()).unwrap_or("")),
+        ),
+    );
+
+    format.insert(
+        "isDashMPD".to_string(),
+        serde_json::Value::Bool(
+            regex_is_dashmpd.is_match(format.get("url").and_then(|x| x.as_str()).unwrap_or("")),
+        ),
+    );
+}
+
+pub fn filter_formats(formats: &mut Vec<serde_json::Value>, options: &VideoSearchOptions) {
+    match options {
         VideoSearchOptions::Audio => {
-            return formats
-                .iter()
-                .filter(|x| x.get("hasVideo").is_none() && x.get("hasAudio").is_some())
-                .collect::<Vec<&serde_json::Value>>();
+            formats.retain(|x| x.get("hasVideo").is_none() && x.get("hasAudio").is_some());
         }
         VideoSearchOptions::Video => {
-            return formats
-                .iter()
-                .filter(|x| x.get("hasVideo").is_some() && x.get("hasAudio").is_none())
-                .collect::<Vec<&serde_json::Value>>();
+            formats.retain(|x| x.get("hasVideo").is_some() && x.get("hasAudio").is_none());
         }
         _ => {
-            return formats
-                .iter()
-                .filter(|x| x.get("hasVideo").is_some() && x.get("hasAudio").is_some())
-                .collect::<Vec<&serde_json::Value>>();
+            formats.retain(|x| x.get("hasVideo").is_some() && x.get("hasAudio").is_some());
         }
     }
 }
@@ -251,32 +226,108 @@ pub fn filter_formats<'a>(
 pub fn choose_format<'a>(
     formats: &'a Vec<serde_json::Value>,
     options: &'a VideoOptions,
-) -> &'a serde_json::Value {
-    let mut return_formats = filter_formats(formats, options);
+) -> Result<serde_json::Value, FormatError> {
+    let filter = &options.filter;
+    let mut formats = formats.clone();
 
-    if return_formats.iter().any(|x| {
+    filter_formats(&mut formats, &filter);
+
+    if formats.iter().any(|x| {
         x.get("isHLS").is_some() && x.get("isHLS").and_then(|x| x.as_bool()).unwrap_or(false)
     }) {
-        return_formats = formats
-            .iter()
-            .filter(|fmt| {
-                (fmt.get("isHLS").is_some()
-                    && fmt.get("isHLS").and_then(|x| x.as_bool()).unwrap_or(false))
-                    || !(fmt.get("isLive").is_some()
-                        && fmt.get("isLive").and_then(|x| x.as_bool()).unwrap_or(false))
-            })
-            .collect::<Vec<&serde_json::Value>>();
+        formats.retain(|fmt| {
+            (fmt.get("isHLS").is_some()
+                && fmt.get("isHLS").and_then(|x| x.as_bool()).unwrap_or(false))
+                || !(fmt.get("isLive").is_some()
+                    && fmt.get("isLive").and_then(|x| x.as_bool()).unwrap_or(false))
+        });
     }
 
-    // Sort formats
-    return_formats.sort_by(|a, b| sort_formats(a, b));
-
+    formats.sort_by(sort_formats);
     match options.quality {
         VideoQuality::Highest => {
-            return return_formats[0];
+            filter_formats(&mut formats, &filter);
+
+            let return_format = formats
+                .get(0)
+                .and_then(|x| Some(x))
+                .unwrap_or(&serde_json::Value::Null);
+
+            if return_format.is_null() {
+                return Err(FormatError::FormatNotFound);
+            }
+            return Ok(return_format.clone());
         }
         VideoQuality::Lowest => {
-            return return_formats[return_formats.len() - 1];
+            filter_formats(&mut formats, &filter);
+
+            let return_format = formats
+                .get(formats.len() - 1)
+                .and_then(|x| Some(x))
+                .unwrap_or(&serde_json::Value::Null);
+
+            if return_format.is_null() {
+                return Err(FormatError::FormatNotFound);
+            }
+            return Ok(return_format.clone());
+        }
+        VideoQuality::HighestAudio => {
+            filter_formats(&mut formats, &VideoSearchOptions::Audio);
+            formats.sort_by(sort_formats_by_audio);
+
+            let return_format = formats
+                .get(0)
+                .and_then(|x| Some(x))
+                .unwrap_or(&serde_json::Value::Null);
+
+            if return_format.is_null() {
+                return Err(FormatError::FormatNotFound);
+            }
+            return Ok(return_format.clone());
+        }
+        VideoQuality::LowestAudio => {
+            filter_formats(&mut formats, &VideoSearchOptions::Audio);
+
+            formats.sort_by(sort_formats_by_audio);
+
+            let return_format = formats
+                .get(formats.len() - 1)
+                .and_then(|x| Some(x))
+                .unwrap_or(&serde_json::Value::Null);
+
+            if return_format.is_null() {
+                return Err(FormatError::FormatNotFound);
+            }
+            return Ok(return_format.clone());
+        }
+        VideoQuality::HighestVideo => {
+            filter_formats(&mut formats, &VideoSearchOptions::Video);
+            formats.sort_by(sort_formats_by_video);
+
+            let return_format = formats
+                .get(0)
+                .and_then(|x| Some(x))
+                .unwrap_or(&serde_json::Value::Null);
+
+            if return_format.is_null() {
+                return Err(FormatError::FormatNotFound);
+            }
+            return Ok(return_format.clone());
+        }
+        VideoQuality::LowestVideo => {
+            filter_formats(&mut formats, &VideoSearchOptions::Video);
+
+            formats.sort_by(sort_formats_by_video);
+
+            let return_format = formats
+                .get(formats.len() - 1)
+                .and_then(|x| Some(x))
+                .unwrap_or(&serde_json::Value::Null);
+
+            if return_format.is_null() {
+                return Err(FormatError::FormatNotFound);
+            }
+            return Ok(return_format.clone());
         }
     }
 }
@@ -307,6 +358,84 @@ where
     } else {
         return std::cmp::Ordering::Equal;
     }
+}
+
+pub fn sort_formats_by_video(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
+    sort_formats_by(
+        a,
+        b,
+        [
+            |form: &serde_json::Value| {
+                let quality_label = form
+                    .get("qualityLabel")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("");
+                let parse_int_regex =
+                    Regex::new(r#"(?m)^\s*((\-|\+)?[0-9]+)\s*"#).expect("IMPOSSIBLE");
+                let quality_label = parse_int_regex
+                    .captures(quality_label)
+                    .and_then(|x| x.get(0))
+                    .and_then(|x| Some(x.as_str()))
+                    .and_then(|x| x.parse::<i32>().ok())
+                    .unwrap_or(0i32);
+
+                quality_label
+            },
+            |form: &serde_json::Value| {
+                form.get("bitrate").and_then(|x| x.as_i64()).unwrap_or(0) as i32
+            },
+            // getVideoEncodingRank,
+            |form: &serde_json::Value| {
+                let index = VIDEO_ENCODING_RANKS
+                    .iter()
+                    .position(|enc| {
+                        form.get("codecs").is_some()
+                            && form
+                                .get("codecs")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .contains(enc)
+                    })
+                    .and_then(|x| Some(x as i32))
+                    .unwrap_or(-1);
+
+                return index as i32;
+            },
+        ]
+        .to_vec(),
+    )
+}
+
+pub fn sort_formats_by_audio(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
+    sort_formats_by(
+        a,
+        b,
+        [
+            |form: &serde_json::Value| {
+                form.get("audioBitrate")
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0) as i32
+            },
+            // getAudioEncodingRank,
+            |form: &serde_json::Value| {
+                let index = AUDIO_ENCODING_RANKS
+                    .iter()
+                    .position(|enc| {
+                        form.get("codecs").is_some()
+                            && form
+                                .get("codecs")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .contains(enc)
+                    })
+                    .and_then(|x| Some(x as i32))
+                    .unwrap_or(-1);
+
+                return index as i32;
+            },
+        ]
+        .to_vec(),
+    )
 }
 
 pub fn sort_formats(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
@@ -346,24 +475,7 @@ pub fn sort_formats(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::O
                     .unwrap_or(false) as i32
             },
             |form: &serde_json::Value| {
-                let mut quality_label = form
-                    .get("qualityLabel")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("0p")
-                    .to_string();
-
-                // Remove "p" char
-                quality_label.pop();
-
-                quality_label.parse().unwrap_or(0)
-            },
-            |form: &serde_json::Value| {
                 form.get("bitrate").and_then(|x| x.as_i64()).unwrap_or(0) as i32
-            },
-            |form: &serde_json::Value| {
-                form.get("audioBitrate")
-                    .and_then(|x| x.as_i64())
-                    .unwrap_or(0) as i32
             },
             |form: &serde_json::Value| {
                 form.get("audioBitrate")
@@ -382,11 +494,8 @@ pub fn sort_formats(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::O
                                 .unwrap_or("")
                                 .contains(enc)
                     })
-                    .unwrap_or(usize::MAX);
-
-                if index == usize::MAX {
-                    return -1;
-                }
+                    .and_then(|x| Some(x as i32))
+                    .unwrap_or(-1);
 
                 return index as i32;
             },
@@ -402,11 +511,8 @@ pub fn sort_formats(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::O
                                 .unwrap_or("")
                                 .contains(enc)
                     })
-                    .unwrap_or(usize::MAX);
-
-                if index == usize::MAX {
-                    return -1;
-                }
+                    .and_then(|x| Some(x as i32))
+                    .unwrap_or(-1);
 
                 return index as i32;
             },
@@ -417,7 +523,7 @@ pub fn sort_formats(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::O
 
 pub fn set_download_url(
     format: &mut serde_json::Value,
-    functions: Vec<String>,
+    functions: Vec<(String, String)>,
 ) -> serde_json::Value {
     let empty_string_serde_value = serde_json::json!("");
     #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -428,15 +534,15 @@ pub fn set_download_url(
         sp: String,
     }
 
-    let empty_script = "".to_string();
+    let empty_script = ("".to_string(), "".to_string());
     let decipher_script_string = functions.get(0).unwrap_or(&empty_script);
     let n_transform_script_string = functions.get(1).unwrap_or(&empty_script);
 
-    fn decipher(url: &str, decipher_script_string: &str) -> String {
+    fn decipher(url: &str, decipher_script_string: &(String, String)) -> String {
         let args: serde_json::value::Map<String, serde_json::Value> =
             serde_qs::from_str(url).unwrap();
 
-        if args.get("s").is_none() || decipher_script_string.is_empty() {
+        if args.get("s").is_none() || decipher_script_string.1.is_empty() {
             if args.get("url").is_none() {
                 return url.to_string();
             } else {
@@ -445,7 +551,7 @@ pub fn set_download_url(
             }
         }
 
-        let decipher_script = js_sandbox::Script::from_string(decipher_script_string);
+        let decipher_script = js_sandbox::Script::from_string(decipher_script_string.1.as_str());
 
         if decipher_script.is_err() {
             if args.get("url").is_none() {
@@ -456,9 +562,10 @@ pub fn set_download_url(
             }
         }
 
-        let result = decipher_script
-            .unwrap()
-            .call("Wxa", &args.get("s").and_then(|x| x.as_str()).unwrap_or(""));
+        let result = decipher_script.unwrap().call(
+            decipher_script_string.0.as_str(),
+            &args.get("s").and_then(|x| x.as_str()).unwrap_or(""),
+        );
 
         if result.is_err() {
             if args.get("url").is_none() {
@@ -512,22 +619,23 @@ pub fn set_download_url(
         return_url.to_string()
     }
 
-    fn ncode(url: &str, n_transform_script_string: &str) -> String {
+    fn ncode(url: &str, n_transform_script_string: &(String, String)) -> String {
         let components: serde_json::value::Map<String, serde_json::Value> =
             serde_qs::from_str(&decode(url).unwrap_or(std::borrow::Cow::Borrowed(url))).unwrap();
 
-        if components.get("n").is_none() || n_transform_script_string.is_empty() {
+        if components.get("n").is_none() || n_transform_script_string.1.is_empty() {
             return url.to_string();
         }
 
-        let n_transform_script = js_sandbox::Script::from_string(n_transform_script_string);
+        let n_transform_script =
+            js_sandbox::Script::from_string(n_transform_script_string.1.as_str());
 
         if n_transform_script.is_err() {
             return url.to_string();
         }
 
         let result = n_transform_script.unwrap().call(
-            "pla",
+            n_transform_script_string.0.as_str(),
             &components.get("n").and_then(|x| x.as_str()).unwrap_or(""),
         );
 
@@ -586,14 +694,14 @@ pub fn set_download_url(
         return_format.insert(
             "url".to_string(),
             serde_json::json!(&ncode(
-                decipher(url, decipher_script_string.as_str()).as_str(),
-                n_transform_script_string.as_str()
+                decipher(url, decipher_script_string).as_str(),
+                n_transform_script_string
             )),
         );
     } else {
         return_format.insert(
             "url".to_string(),
-            serde_json::json!(&ncode(url, n_transform_script_string.as_str())),
+            serde_json::json!(&ncode(url, n_transform_script_string)),
         );
     }
 
@@ -638,8 +746,10 @@ pub fn validate_id(id: String) -> bool {
 
 fn get_url_video_id(url: &str) -> Option<String> {
     let valid_path_domains =
-        Regex::new(r"^https?:\\//\\//(youtu\.be\\//|(www\.)?youtube\.com\\//(embed|v|shorts)\\//)")
-            .unwrap();
+        // Regex::new(r"^https?:\\//\\//(youtu\.be\\//|(www\.)?youtube\.com\\//(embed|v|shorts)\\//)")
+        //     .unwrap();
+        Regex::new(r"(?m)(?:^|\W)(?:youtube(?:-nocookie)?\.com/(?:.*[?&]v=|v/|shorts/|e(?:mbed)?/|[^/]+/.+/)|youtu\.be/)([\w-]+)")
+        .unwrap();
 
     let parsed_result = url::Url::parse(url.trim());
 
@@ -658,28 +768,13 @@ fn get_url_video_id(url: &str) -> Option<String> {
     }
 
     if valid_path_domains.is_match(url.trim()) && id.is_none() {
-        let paths = parsed.host_str().unwrap_or_else(|| "").split("/");
-        if url::Url::parse(url.trim())
-            .unwrap()
-            .host_str()
-            .unwrap_or_else(|| "")
-            == "youtu.be"
-        {
-            id = Some(
-                paths
-                    .collect::<Vec<&str>>()
-                    .get(1)
-                    .unwrap_or_else(|| &"")
-                    .to_string(),
-            );
-        } else {
-            id = Some(
-                paths
-                    .collect::<Vec<&str>>()
-                    .get(2)
-                    .unwrap_or_else(|| &"")
-                    .to_string(),
-            );
+        let captures = valid_path_domains.captures(url.trim());
+        // println!("{:#?}", captures);
+        if captures.is_some() {
+            let id_group = captures.unwrap().get(1);
+            if id_group.is_some() {
+                id = Some(id_group.unwrap().as_str().to_string());
+            }
         }
     } else if url::Url::parse(url.trim()).unwrap().host_str().is_some()
         && !VALID_QUERY_DOMAINS
@@ -1067,10 +1162,12 @@ pub fn is_private_video(player_response: &serde_json::Value) -> bool {
     return false;
 }
 
-pub async fn get_functions(html5player: &str) -> Vec<String> {
-    let client = reqwest::Client::new();
+pub async fn get_functions(
+    html5player: impl Into<String>,
+    client: &reqwest::Client,
+) -> Vec<(String, String)> {
     let response = client
-        .get(format!("https://www.youtube.com/{}", html5player))
+        .get(format!("https://www.youtube.com/{}", html5player.into()))
         .send()
         .await
         .unwrap()
@@ -1081,8 +1178,8 @@ pub async fn get_functions(html5player: &str) -> Vec<String> {
     extract_functions(response)
 }
 
-pub fn extract_functions(body: String) -> Vec<String> {
-    let mut functions: Vec<String> = vec![];
+pub fn extract_functions(body: String) -> Vec<(String, String)> {
+    let mut functions: Vec<(String, String)> = vec![];
     fn extract_manipulations(body: String, caller: &str) -> String {
         let function_name = between(caller, r#"a=a.split("");"#, ".");
         if function_name.len() <= 0 {
@@ -1107,9 +1204,9 @@ pub fn extract_functions(body: String) -> Vec<String> {
         return return_formatted_string;
     }
 
-    fn extract_decipher(body: String, functions: &mut Vec<String>) {
+    fn extract_decipher(body: String, functions: &mut Vec<(String, String)>) {
         let function_name = between(body.as_str(), r#"a.set("alr","yes");c&&(c="#, "(decodeURIC");
-
+        // println!("decipher function name: {}", function_name);
         if function_name.len() > 0 {
             let function_start =
                 format!("{function_name}=function(a)", function_name = function_name);
@@ -1131,13 +1228,14 @@ pub fn extract_functions(body: String) -> Vec<String> {
 
                 function_body.retain(|c| c != '\n');
 
-                functions.push(function_body);
+                functions.push((function_name.to_string(), function_body));
             }
         }
     }
 
-    fn extract_ncode(body: String, functions: &mut Vec<String>) {
+    fn extract_ncode(body: String, functions: &mut Vec<(String, String)>) {
         let mut function_name = between(body.as_str(), r#"&&(b=a.get("n"))&&(b="#, "(b)");
+
         let left_name = format!(
             "{splitted_function_name}=[",
             splitted_function_name = function_name
@@ -1150,6 +1248,8 @@ pub fn extract_functions(body: String) -> Vec<String> {
         if function_name.contains("[") {
             function_name = between(body.as_str(), left_name.as_str(), "]");
         }
+
+        // println!("ncode function name: {}", function_name);
 
         if function_name.len() > 0 {
             let function_start =
@@ -1167,7 +1267,7 @@ pub fn extract_functions(body: String) -> Vec<String> {
 
                 function_body.retain(|c| c != '\n');
 
-                functions.push(function_body);
+                functions.push((function_name.to_string(), function_body));
             }
         }
     }

@@ -1,8 +1,8 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+use crate::structs::{Author, Chapter, StoryBoard, Thumbnail};
 use crate::utils::{get_text, is_verified, parse_abbreviated_number, time_to_ms};
-use crate::{Author, Chapter, StoryBoard, Thumbnail};
 
 pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
     let mut rvs_params: Vec<&str> = vec![];
@@ -53,7 +53,7 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<serde_json::Va
                 x.get("compactVideoRenderer")
                     .and_then(|c| Some(c.as_object().unwrap()))
             })
-            .unwrap_or_else(|| &fallback_value);
+            .unwrap_or(&fallback_value);
 
         if !details.is_empty() {
             let video = parse_related_video(details, &rvs_params);
@@ -64,7 +64,7 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<serde_json::Va
             let autoplay = result
                 .as_object()
                 .and_then(|x| x.get("compactAutoplayRenderer").and_then(|c| c.as_object()))
-                .unwrap_or_else(|| &fallback_value);
+                .unwrap_or(&fallback_value);
 
             if !autoplay.contains_key("contents") {
                 continue;
@@ -73,13 +73,13 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<serde_json::Va
             let contents = autoplay
                 .get("contents")
                 .and_then(|x| x.as_array())
-                .unwrap_or_else(|| &contents_fallback);
+                .unwrap_or(&contents_fallback);
 
             for content in contents {
                 let content_details = content
                     .get("compactVideoRenderer")
                     .and_then(|x| x.as_object())
-                    .unwrap_or_else(|| &fallback_value);
+                    .unwrap_or(&fallback_value);
                 if content_details.is_empty() {
                     continue;
                 }
@@ -107,38 +107,31 @@ pub fn parse_related_video(
     }
     let mut view_count = get_text(&details["viewCountText"])
         .as_str()
-        .unwrap_or_else(|| "".into());
+        .unwrap_or("".into());
 
     let mut short_view_count = get_text(&details["shortViewCountText"])
         .as_str()
-        .unwrap_or_else(|| "".into());
+        .unwrap_or("".into())
+        .to_string();
     let regex = Regex::new(r"^\d").unwrap();
 
-    let empty_query_params = QueryParams {
-        id: String::from("0"),
-        short_view_count_text: String::from("0"),
-        length_seconds: String::from("0"),
-    };
-
-    if !regex.is_match(short_view_count) {
+    if !regex.is_match(&short_view_count) {
         let rvs_details_index = rvs_params
             .iter()
             .map(|x| serde_qs::from_str::<QueryParams>(x).unwrap())
-            .position(|r| {
-                r.id == String::from(details["videoId"].as_str().unwrap_or_else(|| "0".into()))
-            })
-            .unwrap_or_else(|| usize::MAX);
+            .position(|r| r.id == String::from(details["videoId"].as_str().unwrap_or("0".into())));
 
-        if rvs_details_index == usize::MAX {
-            // Do nothing
+        if rvs_details_index.is_some() {
+            let rvs_details_index = rvs_details_index.unwrap();
+            let rvs_params_to_short_view_count = rvs_params
+                .get(rvs_details_index)
+                .and_then(|x| Some(*x))
+                .unwrap_or("");
+
+            short_view_count = serde_qs::from_str::<QueryParams>(rvs_params_to_short_view_count)
+                .and_then(|x| Ok(x.short_view_count_text))
+                .unwrap_or("0".to_string())
         }
-        let rvs_params_to_short_view_count =
-            rvs_params.get(rvs_details_index).unwrap_or_else(|| &"");
-
-        // short_view_count = serde_qs::from_str::<QueryParams>(rvs_params_to_short_view_count)
-        //     .unwrap_or_else(|_c| empty_query_params.clone())
-        //     .short_view_count_text
-        //     .as_str();
     }
 
     view_count = if regex.is_match(view_count) {
@@ -146,56 +139,72 @@ pub fn parse_related_video(
             .split(' ')
             .collect::<Vec<&str>>()
             .get(0)
-            .unwrap_or_else(|| &"")
+            .and_then(|x| Some(*x))
+            .unwrap_or("")
     } else {
         short_view_count
             .split(' ')
             .collect::<Vec<&str>>()
             .get(0)
-            .unwrap_or_else(|| &"")
+            .and_then(|x| Some(*x))
+            .unwrap_or("")
     };
 
-    let empty_serde_array = serde_json::json!([]);
-    let empty_serde_object_array = vec![serde_json::json!({})];
-    let empty_serde_object_str = serde_json::json!("");
     let is_live = details
         .get("badges")
-        .unwrap_or_else(|| &empty_serde_array)
-        .as_array()
-        .unwrap_or_else(|| &empty_serde_object_array)
-        .iter()
-        .filter(|x| {
-            let json = serde_json::json!(x);
-            json["metadataBadgeRenderer"]["label"] == "LIVE NOW"
+        .and_then(|c| {
+            Some(
+                c.as_array()
+                    .and_then(|x| {
+                        Some(
+                            x.iter()
+                                .filter(|x| {
+                                    let json = serde_json::json!(x);
+                                    json["metadataBadgeRenderer"]["label"] == "LIVE NOW"
+                                })
+                                .count()
+                                > 0,
+                        )
+                    })
+                    .unwrap_or(false),
+            )
         })
-        .count()
-        > 0;
+        .unwrap_or(false);
 
     let browse_end_point =
         &details["shortBylineText"]["runs"][0]["navigationEndpoint"]["browseEndpoint"];
     let channel_id = &browse_end_point["browseId"];
-    let author_user: &str = browse_end_point
+    let author_user = browse_end_point
         .get("canonicalBaseUrl")
-        .unwrap_or_else(|| &empty_serde_object_str)
-        .as_str()
-        .unwrap_or_else(|| "")
-        .split("/")
-        .collect::<Vec<&str>>()
-        .last()
-        .unwrap_or_else(|| &"");
+        .and_then(|x| {
+            Some(
+                x.as_str()
+                    .and_then(|c| {
+                        Some(
+                            c.split("/")
+                                .collect::<Vec<&str>>()
+                                .last()
+                                .and_then(|c| Some(*c))
+                                .unwrap_or(""),
+                        )
+                    })
+                    .unwrap_or(""),
+            )
+        })
+        .unwrap_or("");
     let video = serde_json::json!({
         "id": details["videoId"],
         "title": get_text(&details["title"]),
         "published": if details.contains_key("publishedTimeText") {
-            get_text(&details["publishedTimeText"])
+            get_text(&details["publishedTimeText"]).clone()
         } else {
-            &empty_serde_object_str
+            serde_json::json!("")
         },
         "author": {
             "id": channel_id,
             "name": get_text(&details["shortBylineText"]),
             "user": author_user,
-            "channel_url": format!("https://www.youtube.com/channel/{channel_id}",channel_id = channel_id.as_str().unwrap_or_else(|| "")),
+            "channel_url": format!("https://www.youtube.com/channel/{channel_id}",channel_id = channel_id.as_str().unwrap_or("")),
             "user_url": format!("https://www.youtube.com/user/{user}",user = author_user),
             "thumbnails": details["channelThumbnail"]["thumbnails"],
             "verified": if details.contains_key("ownerBadges") {
@@ -204,20 +213,19 @@ pub fn parse_related_video(
                 false
             },
         },
-        "short_view_count_text": short_view_count.split(' ').collect::<Vec<&str>>().get(0).unwrap_or_else(|| &""),
+        "short_view_count_text": short_view_count.split(' ').collect::<Vec<&str>>().get(0).unwrap_or(&""),
         "view_count": Regex::new(r",").unwrap().replace_all(view_count, ""),
         "length_seconds": if details.contains_key("lengthText") {
-            let time = (time_to_ms(get_text(&details["lengthText"]).as_str().unwrap_or_else(|| "0")) / 1000) as f32;
+            let time = (time_to_ms(get_text(&details["lengthText"]).as_str().unwrap_or("0")) / 1000) as f32;
             time.floor()
         } else {
             0 as f32
         },
         "thumbnails": details["thumbnail"]["thumbnails"],
         "richThumbnails": if details.contains_key("richThumbnail") {
-            let rich_thumb = &details["richThumbnail"]["movingThumbnailRenderer"]["movingThumbnailDetails"]["thumbnails"];
-            rich_thumb
+            details["richThumbnail"]["movingThumbnailRenderer"]["movingThumbnailDetails"]["thumbnails"].clone()
         } else {
-            &empty_serde_array
+            serde_json::json!([])
         },
         "isLive": is_live
     });
@@ -237,9 +245,9 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
         .and_then(|x| x.get("results"))
         .and_then(|x| x.get("results"))
         .and_then(|x| x.get("contents"))
-        .unwrap_or_else(|| &empty_serde_array)
+        .unwrap_or(&empty_serde_array)
         .as_array()
-        .unwrap_or_else(|| &empty_serde_object_array);
+        .unwrap_or(&empty_serde_object_array);
 
     let result_option = results
         .iter()
@@ -255,7 +263,7 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                 .get("metadataRowContainer")
                 .and_then(|x| x.get("metadataRowContainerRenderer"))
                 .and_then(|x| x.get("rows"))
-                .unwrap_or_else(|| &empty_serde_object)
+                .unwrap_or(&empty_serde_object)
         } else if result.get("videoSecondaryInfoRenderer").is_some()
             && result
                 .get("videoSecondaryInfoRenderer")
@@ -267,12 +275,12 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                 .and_then(|x| x.get("metadataRowContainer"))
                 .and_then(|x| x.get("metadataRowContainerRenderer"))
                 .and_then(|x| x.get("rows"))
-                .unwrap_or_else(|| &empty_serde_object)
+                .unwrap_or(&empty_serde_object)
         } else {
             &empty_serde_object
         }
         .as_array()
-        .unwrap_or_else(|| &empty_serde_object_array);
+        .unwrap_or(&empty_serde_object_array);
 
         let mut return_object = serde_json::json!({});
 
@@ -282,42 +290,42 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                 let title = get_text(
                     &row.get("metadataRowRenderer")
                         .and_then(|x| x.get("title"))
-                        .unwrap_or_else(|| &empty_serde_object),
+                        .unwrap_or(&empty_serde_object),
                 )
                 .as_str()
-                .unwrap_or_else(|| "title");
+                .unwrap_or("title");
                 let contents = row
                     .get("metadataRowRenderer")
                     .and_then(|x| x.get("contents"))
                     .and_then(|x| x.as_array())
-                    .unwrap_or_else(|| &empty_serde_object_array)
+                    .unwrap_or(&empty_serde_object_array)
                     .get(0)
-                    .unwrap_or_else(|| &empty_serde_object);
+                    .unwrap_or(&empty_serde_object);
 
                 let runs = contents.get("runs");
 
                 let mut title_url = "";
 
                 if runs.is_some()
-                    && runs.unwrap_or_else(|| &empty_serde_object).is_array()
+                    && runs.unwrap_or(&empty_serde_object).is_array()
                     && runs
-                        .unwrap_or_else(|| &empty_serde_object)
+                        .unwrap_or(&empty_serde_object)
                         .as_array()
                         .and_then(|x| x.get(0))
                         .and_then(|x| x.get("navigationEndpoint"))
                         .is_some()
                 {
                     title_url = runs
-                        .unwrap_or_else(|| &empty_serde_array)
+                        .unwrap_or(&empty_serde_array)
                         .as_array()
-                        .unwrap_or_else(|| &empty_serde_object_array)
+                        .unwrap_or(&empty_serde_object_array)
                         .get(0)
                         .and_then(|x| x.get("navigationEndpoint"))
                         .and_then(|x| x.get("commandMetadata"))
                         .and_then(|x| x.get("webCommandMetadata"))
                         .and_then(|x| x.get("url"))
                         .and_then(|x| x.as_str())
-                        .unwrap_or_else(|| "");
+                        .unwrap_or("");
                 }
 
                 // const TITLE_TO_CATEGORY: = {
@@ -340,26 +348,26 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                 "category_url": {category_url},
                 "#,
                     title = title,
-                    title_content = get_text(contents).as_str().unwrap_or_else(|| ""),
+                    title_content = get_text(contents).as_str().unwrap_or(""),
                     title_url = title_url,
                     category = category,
                     category_url = category_url,
                 );
 
                 return_object =
-                    serde_json::from_str(data.as_str()).unwrap_or_else(|_x| serde_json::json!({}));
+                    serde_json::from_str(data.as_str()).unwrap_or(serde_json::json!({}));
             } else if row.get("richMetadataRowRenderer").is_some() {
                 let contents = row
                     .get("richMetadataRowRenderer")
                     .and_then(|x| x.get("contents"))
                     .and_then(|x| x.as_array())
-                    .unwrap_or_else(|| &empty_serde_object_array);
+                    .unwrap_or(&empty_serde_object_array);
 
                 let box_art = contents.iter().filter(|x| {
                     x.get("richMetadataRenderer")
                         .and_then(|c| c.get("style"))
                         .and_then(|c| c.as_str())
-                        .unwrap_or_else(|| "")
+                        .unwrap_or("")
                         == "RICH_METADATA_RENDERER_STYLE_BOX_ART"
                 });
 
@@ -372,28 +380,23 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                 for box_art_value in box_art {
                     let meta = box_art_value
                         .get("richMetadataRenderer")
-                        .unwrap_or_else(|| &empty_serde_object);
+                        .unwrap_or(&empty_serde_object);
 
-                    media_year =
-                        get_text(meta.get("subtitle").unwrap_or_else(|| &empty_serde_object))
-                            .as_str()
-                            .unwrap_or_else(|| "");
+                    media_year = get_text(meta.get("subtitle").unwrap_or(&empty_serde_object))
+                        .as_str()
+                        .unwrap_or("");
 
-                    media_type = get_text(
-                        meta.get("callToAction")
-                            .unwrap_or_else(|| &empty_serde_object),
-                    )
-                    .as_str()
-                    .unwrap_or_else(|| "type")
-                    .split(' ')
-                    .collect::<Vec<&str>>()
-                    .get(1)
-                    .unwrap_or_else(|| &"type");
+                    media_type = get_text(meta.get("callToAction").unwrap_or(&empty_serde_object))
+                        .as_str()
+                        .unwrap_or("type")
+                        .split(' ')
+                        .collect::<Vec<&str>>()
+                        .get(1)
+                        .unwrap_or(&"type");
 
-                    media_type_title =
-                        get_text(meta.get("title").unwrap_or_else(|| &empty_serde_object))
-                            .as_str()
-                            .unwrap_or_else(|| "");
+                    media_type_title = get_text(meta.get("title").unwrap_or(&empty_serde_object))
+                        .as_str()
+                        .unwrap_or("");
 
                     media_type_url = meta
                         .get("endpoint")
@@ -401,18 +404,18 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                         .and_then(|x| x.get("webCommandMetadata"))
                         .and_then(|x| x.get("url"))
                         .and_then(|x| x.as_str())
-                        .unwrap_or_else(|| "");
+                        .unwrap_or("");
                     media_thumbnails = meta
                         .get("thumbnail")
                         .and_then(|x| x.get("thumbnails"))
-                        .unwrap_or_else(|| &empty_serde_array);
+                        .unwrap_or(&empty_serde_array);
                 }
 
                 let topic = contents.iter().filter(|x| {
                     x.get("richMetadataRenderer")
                         .and_then(|x| x.get("style"))
                         .and_then(|x| x.as_str())
-                        .unwrap_or_else(|| "")
+                        .unwrap_or("")
                         == "RICH_METADATA_RENDERER_STYLE_TOPIC"
                 });
 
@@ -422,11 +425,11 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                 for topic_value in topic {
                     let meta = topic_value
                         .get("richMetadataRenderer")
-                        .unwrap_or_else(|| &empty_serde_object);
+                        .unwrap_or(&empty_serde_object);
 
-                    category = get_text(meta.get("title").unwrap_or_else(|| &empty_serde_object))
+                    category = get_text(meta.get("title").unwrap_or(&empty_serde_object))
                         .as_str()
-                        .unwrap_or_else(|| "");
+                        .unwrap_or("");
 
                     category_url = meta
                         .get("endpoint")
@@ -434,7 +437,7 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                         .and_then(|x| x.get("webCommandMetadata"))
                         .and_then(|x| x.get("url"))
                         .and_then(|x| x.as_str())
-                        .unwrap_or_else(|| "");
+                        .unwrap_or("");
                 }
 
                 let data = format!(
@@ -456,7 +459,7 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                 );
 
                 return_object =
-                    serde_json::from_str(data.as_str()).unwrap_or_else(|_x| serde_json::json!({}));
+                    serde_json::from_str(data.as_str()).unwrap_or(serde_json::json!({}));
             }
         }
 
@@ -500,33 +503,31 @@ pub fn get_author(
                 .and_then(|x| x.get("videoSecondaryInfoRenderer"))
                 .and_then(|x| x.get("owner"))
                 .and_then(|x| x.get("videoOwnerRenderer"));
-            video_owner_renderer_index.unwrap_or_else(|| &serde_json::Value::Null)
+            video_owner_renderer_index.unwrap_or(&serde_json::Value::Null)
                 != &serde_json::Value::Null
         })
-        .unwrap_or_else(|| usize::MAX);
+        .unwrap_or(usize::MAX);
 
     // match v_position
-    let v = results
-        .get(v_position)
-        .unwrap_or_else(|| &serde_empty_object);
+    let v = results.get(v_position).unwrap_or(&serde_empty_object);
 
     let video_ownder_renderer = v
         .get("videoSecondaryInfoRenderer")
         .and_then(|x| x.get("owner"))
         .and_then(|x| x.get("videoOwnerRenderer"))
-        .unwrap_or_else(|| &serde_empty_object);
+        .unwrap_or(&serde_empty_object);
 
     let channel_id = video_ownder_renderer
         .get("navigationEndpoint")
         .and_then(|x| x.get("browseEndpoint"))
         .and_then(|x| x.get("browseId"))
         .and_then(|x| x.as_str())
-        .unwrap_or_else(|| &"");
+        .unwrap_or(&"");
     let thumbnails = video_ownder_renderer
         .get("thumbnail")
         .and_then(|x| x.get("thumbnails"))
         .and_then(|x| x.as_array())
-        .unwrap_or_else(|| &empty_serde_object_array)
+        .unwrap_or(&empty_serde_object_array)
         .clone()
         .iter()
         .map(|x| Thumbnail {
@@ -542,7 +543,7 @@ pub fn get_author(
                         x.as_i64()
                     }
                 })
-                .unwrap_or_else(|| 0i64) as i32,
+                .unwrap_or(0i64) as i32,
             height: x
                 .get("height")
                 .and_then(|x| {
@@ -555,11 +556,11 @@ pub fn get_author(
                         x.as_i64()
                     }
                 })
-                .unwrap_or_else(|| 0i64) as i32,
+                .unwrap_or(0i64) as i32,
             url: x
                 .get("url")
                 .and_then(|x| x.as_str())
-                .unwrap_or_else(|| "")
+                .unwrap_or("")
                 .to_string(),
         })
         .collect::<Vec<Thumbnail>>();
@@ -568,20 +569,20 @@ pub fn get_author(
         get_text(
             video_ownder_renderer
                 .get("subscriberCountText")
-                .unwrap_or_else(|| &&zero_viewer),
+                .unwrap_or(&&zero_viewer),
         )
         .as_str()
-        .unwrap_or_else(|| "0"),
+        .unwrap_or("0"),
     );
     let verified = is_verified(
         video_ownder_renderer
             .get("badges")
-            .unwrap_or_else(|| &serde_empty_object),
+            .unwrap_or(&serde_empty_object),
     );
     let video_details = player_response
         .get("microformat")
         .and_then(|x| x.get("playerMicroformatRenderer"))
-        .unwrap_or_else(|| &serde_empty_object);
+        .unwrap_or(&serde_empty_object);
 
     let id = if serde_json::json!(video_details).is_object()
         && video_details.get("channelId").is_some()
@@ -589,7 +590,7 @@ pub fn get_author(
         video_details
             .get("channelId")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| {
+            .unwrap_or({
                 if channel_id != "" {
                     channel_id
                 } else {
@@ -597,7 +598,7 @@ pub fn get_author(
                         .get("videoDetails")
                         .and_then(|x| x.get("channelId"))
                         .and_then(|x| x.as_str())
-                        .unwrap_or_else(|| "")
+                        .unwrap_or("")
                 }
             })
     } else if channel_id != "" {
@@ -607,7 +608,26 @@ pub fn get_author(
             .get("videoDetails")
             .and_then(|x| x.get("channelId"))
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "")
+            .unwrap_or("")
+    };
+
+    let user = if video_details
+        .as_object()
+        .and_then(|x| Some(!x.is_empty()))
+        .unwrap_or(false)
+    {
+        video_details
+            .get("ownerProfileUrl")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .split("/")
+            .collect::<Vec<&str>>()
+            .last()
+            .unwrap_or(&"")
+            .to_string()
+    } else {
+        String::from("")
     };
 
     Some(Author {
@@ -615,17 +635,17 @@ pub fn get_author(
         name: if video_details
             .as_object()
             .and_then(|x| Some(!x.is_empty()))
-            .unwrap_or_else(|| false)
+            .unwrap_or(false)
         {
             video_details
                 .get("ownerChannelName")
                 .and_then(|x| x.as_str())
-                .unwrap_or_else(|| {
+                .unwrap_or({
                     player_response
                         .get("videoDetails")
                         .and_then(|x| x.get("author"))
                         .and_then(|x| x.as_str())
-                        .unwrap_or_else(|| "")
+                        .unwrap_or("")
                 })
                 .to_string()
         } else {
@@ -633,37 +653,20 @@ pub fn get_author(
                 .get("videoDetails")
                 .and_then(|x| x.get("author"))
                 .and_then(|x| x.as_str())
-                .unwrap_or_else(|| "")
+                .unwrap_or("")
                 .to_string()
         },
-        user: if video_details
-            .as_object()
-            .and_then(|x| Some(!x.is_empty()))
-            .unwrap_or_else(|| false)
-        {
-            video_details
-                .get("ownerProfileUrl")
-                .and_then(|x| x.as_str())
-                .unwrap_or_else(|| "")
-                .trim()
-                .split("/")
-                .collect::<Vec<&str>>()
-                .last()
-                .unwrap_or_else(|| &"")
-                .to_string()
-        } else {
-            String::from("")
-        },
+        user: user.clone(),
         channel_url: format!("https://www.youtube.com/channel/{id}", id = id).to_string(),
         external_channel_url: if video_details
             .as_object()
             .and_then(|x| Some(!x.is_empty()))
-            .unwrap_or_else(|| false)
+            .unwrap_or(false)
         {
             let external_channel_id = video_details
                 .get("externalChannelId")
                 .and_then(|x| x.as_str())
-                .unwrap_or_else(|| "")
+                .unwrap_or("")
                 .trim();
             let mut return_string = String::from("");
             if external_channel_id != "" {
@@ -674,24 +677,8 @@ pub fn get_author(
         } else {
             String::from("")
         },
-        user_url: if video_details
-            .as_object()
-            .and_then(|x| Some(!x.is_empty()))
-            .unwrap_or_else(|| false)
-        {
-            let user_url = video_details
-                .get("ownerProfileUrl")
-                .and_then(|x| x.as_str())
-                .unwrap_or_else(|| "")
-                .trim();
-
-            let mut return_string = String::from("");
-
-            if user_url != "" {
-                return_string = format!("https://www.youtube.com/{}", user_url).to_string();
-            }
-
-            return_string
+        user_url: if !user.trim().is_empty() {
+            format!("https://www.youtube.com/{}", user)
         } else {
             String::from("")
         },
@@ -711,7 +698,7 @@ pub fn get_likes(info: &serde_json::Value) -> i32 {
         .and_then(|x| x.get("results"))
         .and_then(|x| x.get("results"))
         .and_then(|x| x.get("contents"))
-        .unwrap_or_else(|| &serde_empty_object);
+        .unwrap_or(&serde_empty_object);
 
     let video = contents
         .as_array()
@@ -719,14 +706,14 @@ pub fn get_likes(info: &serde_json::Value) -> i32 {
             let info_renderer_position = x
                 .iter()
                 .position(|c| c.get("videoPrimaryInfoRenderer").is_some())
-                .unwrap_or_else(|| usize::MAX);
+                .unwrap_or(usize::MAX);
 
             contents
                 .as_array()
                 .and_then(|c| Some(c.get(info_renderer_position)))
-                .unwrap_or_else(|| Some(&serde_empty_object))
+                .unwrap_or(Some(&serde_empty_object))
         })
-        .unwrap_or_else(|| &serde_empty_object);
+        .unwrap_or(&serde_empty_object);
 
     let buttons = video
         .get("videoPrimaryInfoRenderer")
@@ -734,7 +721,7 @@ pub fn get_likes(info: &serde_json::Value) -> i32 {
         .and_then(|x| x.get("menuRenderer"))
         .and_then(|x| x.get("topLevelButtons"))
         .and_then(|x| x.as_array())
-        .unwrap_or_else(|| &empty_serde_object_array);
+        .unwrap_or(&empty_serde_object_array);
 
     let like_index = buttons
         .iter()
@@ -744,15 +731,13 @@ pub fn get_likes(info: &serde_json::Value) -> i32 {
                 .and_then(|c| c.get("defaultIcon"))
                 .and_then(|c| c.get("iconType"))
                 .and_then(|c| c.as_str())
-                .unwrap_or_else(|| "");
+                .unwrap_or("");
 
             icon_type == "LIKE"
         })
-        .unwrap_or_else(|| usize::MAX);
+        .unwrap_or(usize::MAX);
 
-    let like = buttons
-        .get(like_index)
-        .unwrap_or_else(|| &serde_empty_object);
+    let like = buttons.get(like_index).unwrap_or(&serde_empty_object);
 
     let count = like
         .get("toggleButtonRenderer")
@@ -761,13 +746,13 @@ pub fn get_likes(info: &serde_json::Value) -> i32 {
         .and_then(|x| x.get("accessibilityData"))
         .and_then(|x| x.get("label"))
         .and_then(|x| x.as_str())
-        .unwrap_or_else(|| "0");
+        .unwrap_or("0");
 
     let count_regex = regex::Regex::new(r"\D+").unwrap();
 
     let count_final = count_regex.replace_all(count, "");
 
-    count_final.parse::<i32>().unwrap_or_else(|_x| 0i32)
+    count_final.parse::<i32>().unwrap_or(0i32)
 }
 
 pub fn get_dislikes(info: &serde_json::Value) -> i32 {
@@ -780,7 +765,7 @@ pub fn get_dislikes(info: &serde_json::Value) -> i32 {
         .and_then(|x| x.get("results"))
         .and_then(|x| x.get("results"))
         .and_then(|x| x.get("contents"))
-        .unwrap_or_else(|| &serde_empty_object);
+        .unwrap_or(&serde_empty_object);
 
     let video = contents
         .as_array()
@@ -788,14 +773,14 @@ pub fn get_dislikes(info: &serde_json::Value) -> i32 {
             let info_renderer_position = x
                 .iter()
                 .position(|c| c.get("videoPrimaryInfoRenderer").is_some())
-                .unwrap_or_else(|| usize::MAX);
+                .unwrap_or(usize::MAX);
 
             contents
                 .as_array()
                 .and_then(|c| Some(c.get(info_renderer_position)))
-                .unwrap_or_else(|| Some(&serde_empty_object))
+                .unwrap_or(Some(&serde_empty_object))
         })
-        .unwrap_or_else(|| &serde_empty_object);
+        .unwrap_or(&serde_empty_object);
 
     let buttons = video
         .get("videoPrimaryInfoRenderer")
@@ -803,7 +788,7 @@ pub fn get_dislikes(info: &serde_json::Value) -> i32 {
         .and_then(|x| x.get("menuRenderer"))
         .and_then(|x| x.get("topLevelButtons"))
         .and_then(|x| x.as_array())
-        .unwrap_or_else(|| &empty_serde_object_array);
+        .unwrap_or(&empty_serde_object_array);
 
     let like_index = buttons
         .iter()
@@ -813,15 +798,13 @@ pub fn get_dislikes(info: &serde_json::Value) -> i32 {
                 .and_then(|c| c.get("defaultIcon"))
                 .and_then(|c| c.get("iconType"))
                 .and_then(|c| c.as_str())
-                .unwrap_or_else(|| "");
+                .unwrap_or("");
 
             icon_type == "DISLIKE"
         })
-        .unwrap_or_else(|| usize::MAX);
+        .unwrap_or(usize::MAX);
 
-    let like = buttons
-        .get(like_index)
-        .unwrap_or_else(|| &serde_empty_object);
+    let like = buttons.get(like_index).unwrap_or(&serde_empty_object);
 
     let count = like
         .get("toggleButtonRenderer")
@@ -830,13 +813,13 @@ pub fn get_dislikes(info: &serde_json::Value) -> i32 {
         .and_then(|x| x.get("accessibilityData"))
         .and_then(|x| x.get("label"))
         .and_then(|x| x.as_str())
-        .unwrap_or_else(|| "0");
+        .unwrap_or("0");
 
     let count_regex = regex::Regex::new(r"\D+").unwrap();
 
     let count_final = count_regex.replace_all(count, "");
 
-    count_final.parse::<i32>().unwrap_or_else(|_x| 0i32)
+    count_final.parse::<i32>().unwrap_or(0i32)
 }
 
 pub fn get_storyboards(info: &serde_json::Value) -> Option<Vec<StoryBoard>> {
@@ -850,34 +833,31 @@ pub fn get_storyboards(info: &serde_json::Value) -> Option<Vec<StoryBoard>> {
         return Some(vec![]);
     };
 
-    let mut parts = parts
-        .unwrap_or_else(|| "")
-        .split("|")
-        .collect::<Vec<&str>>();
+    let mut parts = parts.unwrap_or("").split("|").collect::<Vec<&str>>();
 
     let mut url = url::Url::parse(parts.remove(0))
-        .unwrap_or_else(|_x| url::Url::parse("https://i.ytimg.com/").unwrap());
+        .unwrap_or(url::Url::parse("https://i.ytimg.com/").unwrap());
     Some(
         parts
             .iter()
             .enumerate()
             .map(|(i, part)| {
                 let part_split_vec = part.split('#').collect::<Vec<&str>>();
-                let thumbnail_width = part_split_vec.get(0).unwrap_or_else(|| &"0");
-                let thumbnail_height = part_split_vec.get(1).unwrap_or_else(|| &"0");
-                let thumbnail_count = part_split_vec.get(2).unwrap_or_else(|| &"0");
-                let columns = part_split_vec.get(3).unwrap_or_else(|| &"0");
-                let rows = part_split_vec.get(4).unwrap_or_else(|| &"0");
-                let interval = part_split_vec.get(5).unwrap_or_else(|| &"0");
-                let name_replacement = part_split_vec.get(6).unwrap_or_else(|| &"0");
-                let sigh = part_split_vec.get(7).unwrap_or_else(|| &"0");
+                let thumbnail_width = part_split_vec.get(0).unwrap_or(&"0");
+                let thumbnail_height = part_split_vec.get(1).unwrap_or(&"0");
+                let thumbnail_count = part_split_vec.get(2).unwrap_or(&"0");
+                let columns = part_split_vec.get(3).unwrap_or(&"0");
+                let rows = part_split_vec.get(4).unwrap_or(&"0");
+                let interval = part_split_vec.get(5).unwrap_or(&"0");
+                let name_replacement = part_split_vec.get(6).unwrap_or(&"0");
+                let sigh = part_split_vec.get(7).unwrap_or(&"0");
 
                 url.query_pairs_mut().append_pair("sigh", sigh);
 
                 let thumbnail_count_parsed =
-                    i32::from_str_radix(thumbnail_count, 10).unwrap_or_else(|_x| 0i32);
-                let columns_parsed = i32::from_str_radix(columns, 10).unwrap_or_else(|_x| 0i32);
-                let rows_parsed = i32::from_str_radix(rows, 10).unwrap_or_else(|_x| 0i32);
+                    i32::from_str_radix(thumbnail_count, 10).unwrap_or(0i32);
+                let columns_parsed = i32::from_str_radix(columns, 10).unwrap_or(0i32);
+                let rows_parsed = i32::from_str_radix(rows, 10).unwrap_or(0i32);
 
                 let storyboard_count_ceiled =
                     thumbnail_count_parsed / (columns_parsed * rows_parsed);
@@ -890,12 +870,10 @@ pub fn get_storyboards(info: &serde_json::Value) -> Option<Vec<StoryBoard>> {
 
                 StoryBoard {
                     template_url,
-                    thumbnail_width: i32::from_str_radix(thumbnail_width, 10)
-                        .unwrap_or_else(|_x| 0i32),
-                    thumbnail_height: i32::from_str_radix(thumbnail_height, 10)
-                        .unwrap_or_else(|_x| 0i32),
+                    thumbnail_width: i32::from_str_radix(thumbnail_width, 10).unwrap_or(0i32),
+                    thumbnail_height: i32::from_str_radix(thumbnail_height, 10).unwrap_or(0i32),
                     thumbnail_count: thumbnail_count_parsed,
-                    interval: i32::from_str_radix(interval, 10).unwrap_or_else(|_x| 0i32),
+                    interval: i32::from_str_radix(interval, 10).unwrap_or(0i32),
                     columns: columns_parsed,
                     rows: rows_parsed,
                     storyboard_count: storyboard_count_ceiled,
@@ -912,19 +890,19 @@ pub fn get_chapters(info: &serde_json::Value) -> Option<Vec<Chapter>> {
     let player_overlay_renderer = info
         .get("playerOverlays")
         .and_then(|x| x.get("playerOverlayRenderer"))
-        .unwrap_or_else(|| &serde_empty_object);
+        .unwrap_or(&serde_empty_object);
 
     let player_bar = player_overlay_renderer
         .get("decoratedPlayerBarRenderer")
         .and_then(|x| x.get("decoratedPlayerBarRenderer"))
         .and_then(|x| x.get("playerBar"))
-        .unwrap_or_else(|| &serde_empty_object);
+        .unwrap_or(&serde_empty_object);
 
     let markers_map = player_bar
         .get("multiMarkersPlayerBarRenderer")
         .and_then(|x| x.get("markersMap"))
         .and_then(|x| x.as_array())
-        .unwrap_or_else(|| &empty_serde_object_array);
+        .unwrap_or(&empty_serde_object_array);
 
     let marker_index = markers_map
         .iter()
@@ -935,17 +913,17 @@ pub fn get_chapters(info: &serde_json::Value) -> Option<Vec<Chapter>> {
                         Some(
                             c.get("chapters")
                                 .and_then(|d| Some(d.is_array()))
-                                .unwrap_or_else(|| false),
+                                .unwrap_or(false),
                         )
                     })
-                    .unwrap_or_else(|| false)
+                    .unwrap_or(false)
         })
-        .unwrap_or_else(|| usize::MAX);
+        .unwrap_or(usize::MAX);
 
     let marker = markers_map
         .get(marker_index)
         .and_then(|x| x.as_object())
-        .unwrap_or_else(|| &serde_empty_object.as_object().unwrap());
+        .unwrap_or(&serde_empty_object.as_object().unwrap());
 
     if marker.is_empty() {
         return Some(vec![]);
@@ -955,7 +933,7 @@ pub fn get_chapters(info: &serde_json::Value) -> Option<Vec<Chapter>> {
         .get("value")
         .and_then(|x| x.get("chapters"))
         .and_then(|x| x.as_array())
-        .unwrap_or_else(|| &empty_serde_object_array);
+        .unwrap_or(&empty_serde_object_array);
 
     Some(
         chapters
@@ -964,16 +942,16 @@ pub fn get_chapters(info: &serde_json::Value) -> Option<Vec<Chapter>> {
                 title: get_text(
                     x.get("chapterRenderer")
                         .and_then(|x| x.get("title"))
-                        .unwrap_or_else(|| &serde_empty_object),
+                        .unwrap_or(&serde_empty_object),
                 )
                 .as_str()
-                .unwrap_or_else(|| "")
+                .unwrap_or("")
                 .to_string(),
                 start_time: (x
                     .get("chapterRenderer")
                     .and_then(|x| x.get("timeRangeStartMillis"))
                     .and_then(|x| x.as_f64())
-                    .unwrap_or_else(|| 0f64)
+                    .unwrap_or(0f64)
                     / 1000f64) as i32,
             })
             .collect::<Vec<Chapter>>(),
