@@ -1,6 +1,6 @@
 # rusty_ytdl
 
-[![crates.io](https://img.shields.io/crates/v/rusty__ytdl.svg)](https://crates.io/crates/rusty_ytdl)
+[![crates.io](https://img.shields.io/crates/v/rusty_ytdl.svg)](https://crates.io/crates/rusty_ytdl)
 [![Released API docs](https://img.shields.io/badge/docs.rs-rusty__ytdl-C36241)](https://docs.rs/rusty_ytdl)
 
 Youtube downloading module. Written with pure Rust.
