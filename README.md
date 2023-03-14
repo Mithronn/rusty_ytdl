@@ -7,7 +7,8 @@
 
 </div>
 
-Youtube downloading module. Written with pure Rust.
+Youtube downloading module written with **pure Rust**.
+Download videos **blazing-fast** without getting stuck on Youtube download speed (Downloads 20MB video files in just 10 seconds!)
 
 ## Overview
 
@@ -21,14 +22,14 @@ Youtube downloading module. Written with pure Rust.
 - [ ] download live videos
 - [x] asynchronous API
 - [ ] blocking API
+- [ ] Proxy options
+- [ ] Cookie options
 - [ ] full video info deserialization
 - [ ] CLI
 - [ ] testing suite
 - [ ] benchmarks
 
 # Usage
-
-Download videos incredibly fast without getting stuck on youtube download speed (Downloads 20mb files in just 10 seconds\*)
 
 ```rust,ignore
 use rusty_ytdl::info::download;
