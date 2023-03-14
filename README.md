@@ -9,7 +9,42 @@
 
 Youtube downloading module. Written with pure Rust.
 
+## Overview
+
+- [Roadmap](#roadmap)
+- [Usage](#usage)
+- [Limitations](#limitations)
+
+## Roadmap
+
+- [x] download normal videos
+- [ ] download live videos
+- [x] asynchronous API
+- [ ] blocking API
+- [ ] full video info deserialization
+- [ ] CLI
+- [ ] testing suite
+- [ ] benchmarks
+
 # Usage
+
+Download videos incredibly fast without getting stuck on youtube download speed (Downloads 20mb files in just 10 seconds\*)
+
+```rust,ignore
+use rusty_ytdl::info::download;
+use rusty_ytdl::structs::DownloadOptions;
+
+#[tokio::main]
+async fn main() {
+  let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc"; // FZ8BxMU3BYc works too!
+  let video_buffer: Vec<u8> = download(video_url,None, DownloadOptions::default()).await.unwrap();
+
+  // Do what you want whit video buffer vector
+  println!("{:#?}",video_buffer);
+}
+```
+
+or get only video informations
 
 ```rust,ignore
 use rusty_ytdl::info::get_info;
@@ -19,7 +54,7 @@ use rusty_ytdl::structs::VideoOptions;
 #[tokio::main]
 async fn main() {
   let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc"; // FZ8BxMU3BYc works too!
-  let video_info = get_info(video_url).await;
+  let video_info = get_info(video_url,None).await;
   // Also works with live videos!!
 
   println!("{:#?}",video_info);

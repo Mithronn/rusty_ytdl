@@ -11,14 +11,14 @@ pub struct VideoInfo {
     pub video_details: VideoDetails,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum VideoSearchOptions {
     VideoAuido,
     Video,
     Audio,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum VideoQuality {
     Highest,
     Lowest,
@@ -29,6 +29,7 @@ pub enum VideoQuality {
 }
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct VideoOptions {
     pub seek: i32,
     pub fmt: String,
@@ -146,6 +147,26 @@ pub enum VideoInfoError {
 #[derive(Debug)]
 pub enum FormatError {
     FormatNotFound,
+}
+
+#[derive(Debug)]
+pub enum DownloadError {
+    VideoNotFound,
+}
+
+#[derive(Debug)]
+pub struct DownloadOptions {
+    pub dl_chunk_size: Option<u64>,
+    pub video_options: VideoOptions,
+}
+
+impl Default for DownloadOptions {
+    fn default() -> Self {
+        DownloadOptions {
+            dl_chunk_size: None,
+            video_options: VideoOptions::default(),
+        }
+    }
 }
 
 pub trait StringUtils {

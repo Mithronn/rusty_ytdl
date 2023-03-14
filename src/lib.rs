@@ -7,21 +7,69 @@ pub mod utils;
 
 #[cfg(test)]
 mod tests {
-    use crate::utils;
+    use std::io::Write;
+
+    use crate::{
+        structs::{DownloadOptions, VideoOptions},
+        utils,
+    };
 
     #[tokio::test]
     async fn get_video_info() {
         use crate::{info::get_info, structs::VideoOptions};
         let start_time = std::time::Instant::now();
-        let video_info = get_info("https://www.youtube.com/watch?v=FZ8BxMU3BYc")
-            // let video_info = get_info("https://www.youtube.com/watch?v=0ThMultL4PY")
-            .await
-            .unwrap();
-        let video_options = VideoOptions::default();
+        let url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc"; //"https://www.youtube.com/watch?v=0ThMultL4PY";
+
+        let video_info = get_info(url, None).await.unwrap();
+
+        let video_options = VideoOptions {
+            seek: 0,
+            fmt: "s16le".to_string(),
+            encoder_args: [].to_vec(),
+            quality: crate::structs::VideoQuality::Lowest,
+            filter: crate::structs::VideoSearchOptions::Audio,
+        };
         let format = utils::choose_format(&video_info.formats, &video_options);
+
         println!("Formats: {:#?}", video_info.formats);
         println!("Formats: {:#?}", format);
-        println!("Time elapsed: {}", start_time.elapsed().as_secs_f64());
+        println!(
+            "get_info -> time elapsed: {}",
+            start_time.elapsed().as_secs_f64()
+        );
+    }
+
+    #[tokio::test]
+    async fn download() {
+        let start_time = std::time::Instant::now();
+        let url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc"; //"https://www.youtube.com/watch?v=0ThMultL4PY";
+
+        let a = crate::info::download(
+            url,
+            None,
+            DownloadOptions {
+                dl_chunk_size: None,
+                video_options: VideoOptions {
+                    seek: 0,
+                    fmt: "s16le".to_string(),
+                    encoder_args: [].to_vec(),
+                    quality: crate::structs::VideoQuality::Lowest,
+                    filter: crate::structs::VideoSearchOptions::Audio,
+                },
+            },
+        )
+        .await;
+
+        if a.is_ok() {
+            let path = std::path::Path::new(r"test.mp4");
+            let mut file = std::fs::File::create(path).unwrap();
+            let info = file.write_all(&a.unwrap());
+            println!("{:?}", info);
+        }
+        println!(
+            "download -> time elapsed: {}",
+            start_time.elapsed().as_secs_f64()
+        );
     }
 
     #[tokio::test]

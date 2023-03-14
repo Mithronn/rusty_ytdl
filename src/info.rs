@@ -6,14 +6,172 @@ use xml_oxide::{sax::parser::Parser, sax::Event};
 use crate::constants::{BASE_URL, FORMATS};
 #[allow(unused_imports)]
 use crate::info_extras::{get_media, get_related_videos};
-use crate::structs::{VideoInfo, VideoInfoError};
+use crate::structs::{DownloadError, DownloadOptions, VideoInfo, VideoInfoError};
 
 #[allow(unused_imports)]
 use crate::utils::{
-    add_format_meta, clean_video_details, get_cver, get_functions, get_html5player, get_video_id,
-    is_not_yet_broadcasted, is_play_error, is_private_video, is_rental, parse_video_formats,
-    sort_formats,
+    add_format_meta, choose_format, clean_video_details, get_cver, get_functions, get_html5player,
+    get_video_id, is_not_yet_broadcasted, is_play_error, is_private_video, is_rental,
+    parse_video_formats, sort_formats,
 };
+
+pub async fn download(
+    url_or_id: impl Into<String>,
+    client: Option<&reqwest::Client>,
+    options: DownloadOptions,
+) -> Result<Vec<u8>, DownloadError> {
+    let client = client
+        .and_then(|x| Some(x.clone()))
+        .unwrap_or(reqwest::Client::builder().build().unwrap());
+
+    let link: String = url_or_id.into();
+
+    let info = get_info(&link, Some(&client))
+        .await
+        .map_err(|_op| DownloadError::VideoNotFound)?;
+    let format = choose_format(&info.formats, &options.video_options)
+        .map_err(|_op| DownloadError::VideoNotFound)?;
+
+    // Only check for HLS formats
+    let is_live_hls = format
+        .as_object()
+        .and_then(|x| x.get("isHLS"))
+        .and_then(|x| x.as_bool());
+
+    if is_live_hls.unwrap_or(false) {
+        // Currently not supporting live streams
+        return Ok(vec![]);
+    }
+
+    let link = format
+        .as_object()
+        .and_then(|x| {
+            Some(
+                x.get("url")
+                    .and_then(|x| Some(x.as_str().unwrap_or("").to_string()))
+                    .unwrap_or("".to_string()),
+            )
+        })
+        .unwrap_or("".to_string());
+
+    let dl_chunk_size = if options.dl_chunk_size.is_some() {
+        options.dl_chunk_size.unwrap()
+    } else {
+        1024 * 1024 * 10 as u64 // -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
+    };
+
+    async fn get_next_chunk(
+        client: &reqwest::Client,
+        headers: &reqwest::header::HeaderMap,
+        link: &str,
+        content_length: &u64,
+        dl_chunk_size: &u64,
+        start: &mut u64,
+        end: &mut u64,
+    ) -> Result<Vec<u8>, DownloadError> {
+        if *end >= *content_length {
+            *end = 0;
+        }
+
+        let mut headers = headers.clone();
+
+        let range_end = if *end == 0 {
+            "".to_string()
+        } else {
+            end.to_string()
+        };
+        headers.insert(
+            reqwest::header::RANGE,
+            format!("bytes={}-{}", start, range_end).parse().unwrap(),
+        );
+
+        let response = client.get(link).headers(headers).send().await;
+
+        if response.is_err() {
+            return Err(DownloadError::VideoNotFound);
+        }
+
+        let mut response = response.expect("IMPOSSIBLE");
+
+        let mut buf: Vec<u8> = vec![];
+
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_e| DownloadError::VideoNotFound)?
+        {
+            let chunk = chunk.to_vec();
+            buf.extend(chunk.iter());
+            // println!("Chunk recieved: {:?}", chunk.len());
+        }
+
+        if *end != 0 {
+            *start = *end + 1;
+            *end += *dl_chunk_size;
+            // println!("Chunking new: Length {:?}", start);
+        }
+
+        Ok(buf)
+    }
+
+    let mut start = 0;
+    let mut end = start + dl_chunk_size;
+
+    let content_length = format.as_object().and_then(|x| {
+        x.get("contentLength")
+            .and_then(|x| Some(x.as_str().unwrap_or("").to_string()))
+    });
+    let mut content_length = content_length
+        .unwrap_or("0".to_string())
+        .parse::<u64>()
+        .unwrap_or(0);
+
+    // Get content length from source url if content_length is 0
+    if content_length == 0 {
+        let content_length_response = client
+            .get(&link)
+            .send()
+            .await
+            .map_err(|_op| DownloadError::VideoNotFound)?
+            .content_length();
+
+        if content_length_response.is_none() {
+            return Err(DownloadError::VideoNotFound);
+        }
+
+        content_length = content_length_response.unwrap();
+    }
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.101 Safari/537.36".parse().unwrap());
+
+    let mut buf: Vec<u8> = vec![];
+    loop {
+        let chunk_result = get_next_chunk(
+            &client,
+            &headers,
+            &link,
+            &content_length,
+            &dl_chunk_size,
+            &mut start,
+            &mut end,
+        )
+        .await;
+
+        if chunk_result.is_err() {
+            break;
+        }
+
+        buf.extend(chunk_result.unwrap().iter());
+
+        if end == 0 {
+            // Nothing else remain, break to loop!
+            break;
+        }
+    }
+
+    Ok(buf)
+}
 
 pub async fn get_basic_info(
     link: &str,
@@ -128,8 +286,14 @@ pub async fn get_basic_info(
     return Ok(a);
 }
 
-pub async fn get_info(link: &str) -> Result<VideoInfo, VideoInfoError> {
-    let client = reqwest::Client::builder().build().unwrap();
+pub async fn get_info(
+    link: &str,
+    client: Option<&reqwest::Client>,
+) -> Result<VideoInfo, VideoInfoError> {
+    let client = client
+        .and_then(|x| Some(x.clone()))
+        .unwrap_or(reqwest::Client::builder().build().unwrap());
+
     let mut info = get_basic_info(link, Some(&client)).await?;
 
     let has_manifest = info
