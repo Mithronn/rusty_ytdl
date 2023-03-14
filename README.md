@@ -2,8 +2,8 @@
 
 <div align="center">
 
-[![crates.io](https://img.shields.io/crates/v/rusty_ytdl.svg?style=for-the-badge)](https://crates.io/crates/rusty_ytdl)
-[![Released API docs](https://img.shields.io/badge/docs.rs-rusty__ytdl-C36241?style=for-the-badge)](https://docs.rs/rusty_ytdl)
+[![crates.io](https://img.shields.io/crates/v/rusty_ytdl.svg?style=for-the-badge&logo=rust)](https://crates.io/crates/rusty_ytdl)
+[![Released API docs](https://img.shields.io/badge/docs.rs-rusty__ytdl-C36241?style=for-the-badge&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAAAXNSR0IArs4c6QAAAHhJREFUOE+tkuEKgDAIhNvw/R94icUFDnMeUbSf6nfn1LaRZ2YHUr33VpUsQQdycRa4gRHywioGUQpGR4hAILo+gtH5P5ANhE0czlfveexZKLbouQkydRYvQZ8i2yVcF7DanwvE3HdwjLGLiLz5o6rqPAB2WhCscidaPm/VahMnogAAAABJRU5ErkJggg==)](https://docs.rs/rusty_ytdl)
 
 </div>
 
@@ -38,9 +38,9 @@ use rusty_ytdl::structs::DownloadOptions;
 #[tokio::main]
 async fn main() {
   let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc"; // FZ8BxMU3BYc works too!
-  let video_buffer: Vec<u8> = download(video_url,None, DownloadOptions::default()).await.unwrap();
+  let video_buffer: Vec<u8> = download(video_url, None, DownloadOptions::default()).await.unwrap();
 
-  // Do what you want whit video buffer vector
+  // Do what you want with video buffer vector
   println!("{:#?}",video_buffer);
 }
 ```
@@ -55,7 +55,7 @@ use rusty_ytdl::structs::VideoOptions;
 #[tokio::main]
 async fn main() {
   let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc"; // FZ8BxMU3BYc works too!
-  let video_info = get_info(video_url,None).await;
+  let video_info = get_info(video_url, None).await;
   // Also works with live videos!!
 
   println!("{:#?}",video_info);
@@ -98,5 +98,5 @@ Or add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rusty_ytdl = "0.1.0"
+rusty_ytdl = "0.2.0"
 ```
