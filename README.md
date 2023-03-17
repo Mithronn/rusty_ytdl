@@ -108,10 +108,10 @@ async fn main() {
 
 rusty-ytdl cannot download videos that fall into the following
 
-- Regionally restricted (requires a [proxy](example/proxy.rs))
-- Private (if you have access, requires [cookies](example/cookies.rs))
-- Rentals (if you have access, requires [cookies](example/cookies.rs))
-- YouTube Premium content (if you have access, requires [cookies](example/cookies.rs))
+- Regionally restricted (requires a [proxy](examples/proxy.rs))
+- Private (if you have access, requires [cookies](examples/cookies.rs))
+- Rentals (if you have access, requires [cookies](examples/cookies.rs))
+- YouTube Premium content (if you have access, requires [cookies](examples/cookies.rs))
 - Only [HLS Livestreams](https://en.wikipedia.org/wiki/HTTP_Live_Streaming) are currently supported. Other formats not will be fetch
 
 Generated download links are valid for 6 hours, and may only be downloadable from the same IP address.
@@ -126,5 +126,5 @@ Or add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rusty_ytdl = "0.2.0"
+rusty_ytdl = "0.3.0"
 ```
