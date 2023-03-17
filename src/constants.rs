@@ -1,4 +1,4 @@
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 
 pub const BASE_URL: &str = "https://www.youtube.com/watch?v=";
 
@@ -26,9 +26,15 @@ pub const VIDEO_ENCODING_RANKS: &'static [&str] = &[
     "H.264",
 ];
 
-lazy_static! {
-    #[derive(Debug)]
-    pub static ref FORMATS: serde_json::Value = serde_json::json!({
+pub(crate) static DEFAULT_HEADERS: Lazy<reqwest::header::HeaderMap> = Lazy::new(|| {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.101 Safari/537.36".parse().unwrap());
+
+    headers
+});
+
+pub static FORMATS: Lazy<serde_json::Value> = Lazy::new(|| {
+    serde_json::json!({
       "5": {
         "mimeType": r#"video/flv; codecs="Sorenson H.283, mp3""#,
         "qualityLabel": "240p",
@@ -546,5 +552,5 @@ lazy_static! {
         "bitrate": 12000000,
         "audioBitrate": null,
       },
-    });
-}
+    })
+});

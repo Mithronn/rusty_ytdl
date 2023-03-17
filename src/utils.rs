@@ -7,7 +7,7 @@ use crate::constants::{
 };
 use crate::info_extras::{get_author, get_chapters, get_dislikes, get_likes, get_storyboards};
 use crate::structs::{
-    Embed, FormatError, StringUtils, Thumbnail, VideoDetails, VideoOptions, VideoQuality,
+    Embed, StringUtils, Thumbnail, VideoDetails, VideoError, VideoOptions, VideoQuality,
     VideoSearchOptions,
 };
 
@@ -226,7 +226,7 @@ pub fn filter_formats(formats: &mut Vec<serde_json::Value>, options: &VideoSearc
 pub fn choose_format<'a>(
     formats: &'a Vec<serde_json::Value>,
     options: &'a VideoOptions,
-) -> Result<serde_json::Value, FormatError> {
+) -> Result<serde_json::Value, VideoError> {
     let filter = &options.filter;
     let mut formats = formats.clone();
 
@@ -254,7 +254,7 @@ pub fn choose_format<'a>(
                 .unwrap_or(&serde_json::Value::Null);
 
             if return_format.is_null() {
-                return Err(FormatError::FormatNotFound);
+                return Err(VideoError::FormatNotFound);
             }
             return Ok(return_format.clone());
         }
@@ -267,7 +267,7 @@ pub fn choose_format<'a>(
                 .unwrap_or(&serde_json::Value::Null);
 
             if return_format.is_null() {
-                return Err(FormatError::FormatNotFound);
+                return Err(VideoError::FormatNotFound);
             }
             return Ok(return_format.clone());
         }
@@ -281,7 +281,7 @@ pub fn choose_format<'a>(
                 .unwrap_or(&serde_json::Value::Null);
 
             if return_format.is_null() {
-                return Err(FormatError::FormatNotFound);
+                return Err(VideoError::FormatNotFound);
             }
             return Ok(return_format.clone());
         }
@@ -296,7 +296,7 @@ pub fn choose_format<'a>(
                 .unwrap_or(&serde_json::Value::Null);
 
             if return_format.is_null() {
-                return Err(FormatError::FormatNotFound);
+                return Err(VideoError::FormatNotFound);
             }
             return Ok(return_format.clone());
         }
@@ -310,7 +310,7 @@ pub fn choose_format<'a>(
                 .unwrap_or(&serde_json::Value::Null);
 
             if return_format.is_null() {
-                return Err(FormatError::FormatNotFound);
+                return Err(VideoError::FormatNotFound);
             }
             return Ok(return_format.clone());
         }
@@ -325,7 +325,7 @@ pub fn choose_format<'a>(
                 .unwrap_or(&serde_json::Value::Null);
 
             if return_format.is_null() {
-                return Err(FormatError::FormatNotFound);
+                return Err(VideoError::FormatNotFound);
             }
             return Ok(return_format.clone());
         }

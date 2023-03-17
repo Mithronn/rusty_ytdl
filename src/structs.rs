@@ -11,43 +11,101 @@ pub struct VideoInfo {
     pub video_details: VideoDetails,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, derive_more::Display)]
 pub enum VideoSearchOptions {
+    #[display(fmt = "Video & Audio")]
     VideoAuido,
+    #[display(fmt = "Video")]
     Video,
+    #[display(fmt = "Audio")]
     Audio,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, derive_more::Display)]
 pub enum VideoQuality {
+    #[display(fmt = "Highest")]
     Highest,
+    #[display(fmt = "Lowest")]
     Lowest,
+    #[display(fmt = "Highest Audio")]
     HighestAudio,
+    #[display(fmt = "Lowest Audio")]
     LowestAudio,
+    #[display(fmt = "Highest Video")]
     HighestVideo,
+    #[display(fmt = "Lowest Video")]
     LowestVideo,
 }
 
-#[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Clone, derive_more::Display, derivative::Derivative)]
+#[display(fmt = "VideoOptions(quality: {quality}, filter: {filter})")]
+#[derivative(Debug, PartialEq, Eq)]
 pub struct VideoOptions {
-    pub seek: i32,
-    pub fmt: String,
-    pub encoder_args: Vec<String>,
     pub quality: VideoQuality,
     pub filter: VideoSearchOptions,
+    pub download_options: DownloadOptions,
+    #[derivative(PartialEq = "ignore")]
+    pub request_options: RequestOptions,
 }
 
 impl Default for VideoOptions {
     fn default() -> Self {
         VideoOptions {
-            seek: 0,
-            fmt: String::from("s16le"),
-            encoder_args: vec![],
             quality: VideoQuality::Highest,
             filter: VideoSearchOptions::Audio,
+            download_options: DownloadOptions::default(),
+            request_options: RequestOptions::default(),
         }
     }
+}
+
+#[derive(Clone, PartialEq, Debug, derive_more::Display)]
+#[display(fmt = "DownloadOptions()")]
+pub struct DownloadOptions {
+    pub dl_chunk_size: Option<u64>,
+}
+
+impl Default for DownloadOptions {
+    fn default() -> Self {
+        DownloadOptions {
+            dl_chunk_size: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, derive_more::Display)]
+#[display(fmt = "RequestOptions()")]
+pub struct RequestOptions {
+    pub proxy: Option<reqwest::Proxy>,
+    /// **Example**: Some("key1=value1; key2=value2; key3=value3".to_string())
+    pub cookies: Option<String>,
+}
+
+impl Default for RequestOptions {
+    fn default() -> Self {
+        RequestOptions {
+            proxy: None,
+            cookies: None,
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum VideoError {
+    #[error("The video not found")]
+    VideoNotFound,
+    #[error("Video source empty")]
+    VideoSourceNotFound,
+    #[error("Video is private")]
+    VideoIsPrivate,
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+    #[error(transparent)]
+    URLParseError(#[from] url::ParseError),
+    #[error("Body cannot parsed")]
+    BodyCannotParsed,
+    #[error("Format not found")]
+    FormatNotFound,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -132,41 +190,6 @@ pub struct Embed {
     pub iframe_url: String,
     pub height: i32,
     pub width: i32,
-}
-
-#[derive(Debug)]
-pub enum VideoInfoError {
-    VideoNotFound,
-    VideoSourceNotFound,
-    VideoIsPrivate,
-    URLParseError,
-    HttpRequestError,
-    BodyCannotParsed,
-}
-
-#[derive(Debug)]
-pub enum FormatError {
-    FormatNotFound,
-}
-
-#[derive(Debug)]
-pub enum DownloadError {
-    VideoNotFound,
-}
-
-#[derive(Debug)]
-pub struct DownloadOptions {
-    pub dl_chunk_size: Option<u64>,
-    pub video_options: VideoOptions,
-}
-
-impl Default for DownloadOptions {
-    fn default() -> Self {
-        DownloadOptions {
-            dl_chunk_size: None,
-            video_options: VideoOptions::default(),
-        }
-    }
 }
 
 pub trait StringUtils {

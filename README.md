@@ -21,24 +21,38 @@ Download videos **blazing-fast** without getting stuck on Youtube download speed
 - [x] download normal videos
 - [ ] download live videos
 - [x] asynchronous API
-- [ ] blocking API
-- [ ] Proxy options
-- [ ] Cookie options
+- [x] blocking API
+- [x] proxy options
+- [x] cookie options
 - [ ] full video info deserialization
 - [ ] CLI
-- [ ] testing suite
 - [ ] benchmarks
 
 # Usage
 
 ```rust,ignore
-use rusty_ytdl::info::download;
-use rusty_ytdl::structs::DownloadOptions;
+use rusty_ytdl::Video;
 
 #[tokio::main]
 async fn main() {
   let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc"; // FZ8BxMU3BYc works too!
-  let video_buffer: Vec<u8> = download(video_url, None, DownloadOptions::default()).await.unwrap();
+  let video = Video::new(url).unwrap();
+
+  let video_download_buffer = video.download().await;
+
+  // Do what you want with video buffer vector
+  println!("{:#?}",video_buffer);
+
+  // Or with options
+
+  let video_options = VideoOptions {
+    quality: VideoQuality::Lowest,
+    filter: VideoSearchOptions::Audio,
+    ..Default::default()
+  };
+
+  let video = Video::new_with_options(url, video_options).unwrap();
+  let video_download_buffer = video.download().await;
 
   // Do what you want with video buffer vector
   println!("{:#?}",video_buffer);
@@ -48,17 +62,18 @@ async fn main() {
 or get only video informations
 
 ```rust,ignore
-use rusty_ytdl::info::get_info;
-use rusty_ytdl::utils::choose_format;
-use rusty_ytdl::structs::VideoOptions;
+use rusty_ytdl::Video;
+use rusty_ytdl::{choose_format,VideoOptions};
 
 #[tokio::main]
 async fn main() {
   let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc"; // FZ8BxMU3BYc works too!
-  let video_info = get_info(video_url, None).await;
   // Also works with live videos!!
+  let video = Video::new(url).unwrap();
 
+  let video_info = video.get_info().await.unwrap();
   println!("{:#?}",video_info);
+
   /*
   VideoInfo {
     ...
@@ -68,11 +83,24 @@ async fn main() {
   }
   */
 
-  let video_options = VideoOptions::default();
+  let video_options = VideoOptions {
+    quality: VideoQuality::Lowest,
+    filter: VideoSearchOptions::Audio,
+      ..Default::default()
+  };
+
   let format = choose_format(&video_info.unwrap().formats,&video_options);
 
-  // Get a format by VideoOptions filter parameter
   println!("{:#?}",format);
+
+  // Or with options
+  let video = Video::new_with_options(url, video_options.clone()).unwrap();
+
+  let format = choose_format(&video_info.formats, &video_options);
+
+  let video_info = video.get_info().await.unwrap();
+
+  println!("{:#?}",video_info);
 }
 ```
 
@@ -80,10 +108,10 @@ async fn main() {
 
 rusty-ytdl cannot download videos that fall into the following
 
-- Regionally restricted (requires a [proxy](example/proxy.js))
-- Private (if you have access, requires [cookies](example/cookies.js))
-- Rentals (if you have access, requires [cookies](example/cookies.js))
-- YouTube Premium content (if you have access, requires [cookies](example/cookies.js))
+- Regionally restricted (requires a [proxy](example/proxy.rs))
+- Private (if you have access, requires [cookies](example/cookies.rs))
+- Rentals (if you have access, requires [cookies](example/cookies.rs))
+- YouTube Premium content (if you have access, requires [cookies](example/cookies.rs))
 - Only [HLS Livestreams](https://en.wikipedia.org/wiki/HTTP_Live_Streaming) are currently supported. Other formats not will be fetch
 
 Generated download links are valid for 6 hours, and may only be downloadable from the same IP address.
