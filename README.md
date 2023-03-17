@@ -104,6 +104,8 @@ async fn main() {
 }
 ```
 
+For more examples, check [examples](examples/)
+
 ## Limitations
 
 rusty-ytdl cannot download videos that fall into the following
