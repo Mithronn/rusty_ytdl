@@ -24,7 +24,7 @@ Download videos **blazing-fast** without getting stuck on Youtube download speed
 - [x] blocking API
 - [x] proxy options
 - [x] cookie options
-- [ ] full video info deserialization
+- [x] full video info deserialization
 - [ ] CLI
 - [ ] benchmarks
 
@@ -76,10 +76,11 @@ async fn main() {
 
   /*
   VideoInfo {
-    ...
+    dash_manifest_url: Option<String>,
+    hls_manifest_url: Option<String>,
     video_details: VideoDetails,
-    formats: Vec<serde_json::Value>,
-    related_videos: Vec<serde_json::Value>
+    formats: Vec<VideoFormat>,
+    related_videos: Vec<RelatedVideo>
   }
   */
 
@@ -108,7 +109,7 @@ For more examples, check [examples](examples/)
 
 ## Limitations
 
-rusty-ytdl cannot download videos that fall into the following
+rusty_ytdl cannot download videos that fall into the following
 
 - Regionally restricted (requires a [proxy](examples/proxy.rs))
 - Private (if you have access, requires [cookies](examples/cookies.rs))
@@ -117,6 +118,16 @@ rusty-ytdl cannot download videos that fall into the following
 - Only [HLS Livestreams](https://en.wikipedia.org/wiki/HTTP_Live_Streaming) are currently supported. Other formats not will be fetch
 
 Generated download links are valid for 6 hours, and may only be downloadable from the same IP address.
+
+### Ratelimits
+
+When doing to many requests YouTube might block. This will result in your requests getting denied with HTTP-StatusCode 429. The following Steps might help you:
+
+- Use proxies (you can find an example [proxy](examples/proxy.rs))
+- Extend on the Proxy Idea by rotating (IPv6-)Addresses (you can find an example [ipv6](examples/ipv6.rs))
+- Use cookies (you can find an example [cookies](examples/cookies.rs))
+  - for this to take effect you have to FIRST wait for the current ratelimit to expire
+- Wait it out
 
 # Installation
 

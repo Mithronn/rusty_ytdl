@@ -1165,12 +1165,13 @@ dependencies = [
 
 [[package]]
 name = "rusty_ytdl"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "derivative",
  "derive_more",
  "js-sandbox",
  "once_cell",
+ "rand 0.8.5",
  "regex",
  "reqwest",
  "scraper",

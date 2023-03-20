@@ -1,14 +1,16 @@
+use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use urlencoding::decode;
 
 use crate::constants::{
-    AGE_RESTRICTED_URLS, AUDIO_ENCODING_RANKS, BASE_URL, VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
+    AGE_RESTRICTED_URLS, AUDIO_ENCODING_RANKS, BASE_URL, IPV6_REGEX, PARSE_INT_REGEX,
+    VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
 };
 use crate::info_extras::{get_author, get_chapters, get_dislikes, get_likes, get_storyboards};
 use crate::structs::{
-    Embed, StringUtils, Thumbnail, VideoDetails, VideoError, VideoOptions, VideoQuality,
-    VideoSearchOptions,
+    Embed, StringUtils, Thumbnail, VideoDetails, VideoError, VideoFormat, VideoOptions,
+    VideoQuality, VideoSearchOptions,
 };
 
 pub fn get_cver(info: &serde_json::Value) -> &str {
@@ -70,7 +72,7 @@ pub fn get_html5player(body: &str) -> Option<String> {
 pub fn parse_video_formats(
     info: &serde_json::Value,
     format_functions: Vec<(String, String)>,
-) -> Option<Vec<serde_json::Value>> {
+) -> Option<Vec<VideoFormat>> {
     if info.as_object()?.contains_key("streamingData") {
         let formats = info
             .as_object()?
@@ -102,7 +104,22 @@ pub fn parse_video_formats(
             });
         }
 
-        Some(formats)
+        let mut well_formated_formats: Vec<VideoFormat> = vec![];
+
+        // Change formats type serde_json::Value to VideoFormat
+        for format in formats.iter() {
+            let well_formated_format: Result<VideoFormat, serde_json::Error> =
+                serde_json::from_value(format.clone());
+
+            if well_formated_format.is_err() {
+                continue;
+            }
+
+            well_formated_formats
+                .insert(well_formated_formats.len(), well_formated_format.unwrap());
+        }
+
+        Some(well_formated_formats)
     } else {
         None
     }
@@ -111,10 +128,14 @@ pub fn parse_video_formats(
 pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) {
     if format.contains_key("qualityLabel") {
         format.insert("hasVideo".to_owned(), serde_json::Value::Bool(true));
+    } else {
+        format.insert("hasVideo".to_owned(), serde_json::Value::Bool(false));
     }
 
     if format.contains_key("audioBitrate") || format.contains_key("audioQuality") {
         format.insert("hasAudio".to_owned(), serde_json::Value::Bool(true));
+    } else {
+        format.insert("hasAudio".to_owned(), serde_json::Value::Bool(false));
     }
 
     if format.contains_key("mimeType") {
@@ -133,6 +154,8 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
 
         if !container_value.is_empty() {
             format.insert("container".to_owned(), serde_json::json!(container_value));
+        } else {
+            format.insert("container".to_owned(), serde_json::json!(null));
         }
 
         let codecs_value = between(
@@ -146,10 +169,23 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
 
         if !codecs_value.is_empty() {
             format.insert("codecs".to_string(), serde_json::json!(codecs_value));
+        } else {
+            format.insert("codecs".to_string(), serde_json::json!(null));
         }
+    } else {
+        format.insert("container".to_owned(), serde_json::json!(null));
+        format.insert("codecs".to_string(), serde_json::json!(null));
     }
 
-    if format.contains_key("hasVideo") && format.contains_key("codecs") {
+    if format
+        .get("hasVideo")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false)
+        && format
+            .get("codecs")
+            .and_then(|x| Some(!x.is_null()))
+            .unwrap_or(false)
+    {
         let video_codec_value = format
             .get("codecs")
             .and_then(|x| x.as_str())
@@ -162,10 +198,22 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
                 "videoCodec".to_string(),
                 serde_json::json!(video_codec_value),
             );
+        } else {
+            format.insert("videoCodec".to_string(), serde_json::json!(null));
         }
+    } else {
+        format.insert("videoCodec".to_string(), serde_json::json!(null));
     }
 
-    if format.contains_key("hasAudio") && format.contains_key("codecs") {
+    if format
+        .get("hasAudio")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false)
+        && format
+            .get("codecs")
+            .and_then(|x| Some(!x.is_null()))
+            .unwrap_or(false)
+    {
         let audio_codec_value_arr = format
             .get("codecs")
             .and_then(|x| x.as_str())
@@ -180,7 +228,11 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
                 "audioCodec".to_string(),
                 serde_json::json!(audio_codec_value),
             );
+        } else {
+            format.insert("audioCodec".to_string(), serde_json::json!(null));
         }
+    } else {
+        format.insert("audioCodec".to_string(), serde_json::json!(null));
     }
 
     let regex_is_live = Regex::new(r"\bsource[/=]yt_live_broadcast\b").unwrap();
@@ -209,38 +261,31 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
     );
 }
 
-pub fn filter_formats(formats: &mut Vec<serde_json::Value>, options: &VideoSearchOptions) {
+pub fn filter_formats(formats: &mut Vec<VideoFormat>, options: &VideoSearchOptions) {
     match options {
         VideoSearchOptions::Audio => {
-            formats.retain(|x| x.get("hasVideo").is_none() && x.get("hasAudio").is_some());
+            formats.retain(|x| !x.has_video && x.has_audio);
         }
         VideoSearchOptions::Video => {
-            formats.retain(|x| x.get("hasVideo").is_some() && x.get("hasAudio").is_none());
+            formats.retain(|x| x.has_video && !x.has_audio);
         }
         _ => {
-            formats.retain(|x| x.get("hasVideo").is_some() && x.get("hasAudio").is_some());
+            formats.retain(|x| x.has_video && x.has_audio);
         }
     }
 }
 
 pub fn choose_format<'a>(
-    formats: &'a Vec<serde_json::Value>,
+    formats: &'a Vec<VideoFormat>,
     options: &'a VideoOptions,
-) -> Result<serde_json::Value, VideoError> {
+) -> Result<VideoFormat, VideoError> {
     let filter = &options.filter;
     let mut formats = formats.clone();
 
     filter_formats(&mut formats, &filter);
 
-    if formats.iter().any(|x| {
-        x.get("isHLS").is_some() && x.get("isHLS").and_then(|x| x.as_bool()).unwrap_or(false)
-    }) {
-        formats.retain(|fmt| {
-            (fmt.get("isHLS").is_some()
-                && fmt.get("isHLS").and_then(|x| x.as_bool()).unwrap_or(false))
-                || !(fmt.get("isLive").is_some()
-                    && fmt.get("isLive").and_then(|x| x.as_bool()).unwrap_or(false))
-        });
+    if formats.iter().any(|x| x.is_hls) {
+        formats.retain(|fmt| (fmt.is_hls) || !(fmt.is_live));
     }
 
     formats.sort_by(sort_formats);
@@ -248,132 +293,100 @@ pub fn choose_format<'a>(
         VideoQuality::Highest => {
             filter_formats(&mut formats, &filter);
 
-            let return_format = formats
-                .get(0)
-                .and_then(|x| Some(x))
-                .unwrap_or(&serde_json::Value::Null);
+            let return_format = formats.get(0);
 
-            if return_format.is_null() {
+            if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.clone());
+            return Ok(return_format.unwrap().clone());
         }
         VideoQuality::Lowest => {
             filter_formats(&mut formats, &filter);
 
-            let return_format = formats
-                .get(formats.len() - 1)
-                .and_then(|x| Some(x))
-                .unwrap_or(&serde_json::Value::Null);
+            let return_format = formats.get(formats.len() - 1);
 
-            if return_format.is_null() {
+            if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.clone());
+            return Ok(return_format.unwrap().clone());
         }
         VideoQuality::HighestAudio => {
             filter_formats(&mut formats, &VideoSearchOptions::Audio);
             formats.sort_by(sort_formats_by_audio);
 
-            let return_format = formats
-                .get(0)
-                .and_then(|x| Some(x))
-                .unwrap_or(&serde_json::Value::Null);
+            let return_format = formats.get(0);
 
-            if return_format.is_null() {
+            if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.clone());
+            return Ok(return_format.unwrap().clone());
         }
         VideoQuality::LowestAudio => {
             filter_formats(&mut formats, &VideoSearchOptions::Audio);
 
             formats.sort_by(sort_formats_by_audio);
 
-            let return_format = formats
-                .get(formats.len() - 1)
-                .and_then(|x| Some(x))
-                .unwrap_or(&serde_json::Value::Null);
+            let return_format = formats.get(formats.len() - 1);
 
-            if return_format.is_null() {
+            if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.clone());
+            return Ok(return_format.unwrap().clone());
         }
         VideoQuality::HighestVideo => {
             filter_formats(&mut formats, &VideoSearchOptions::Video);
             formats.sort_by(sort_formats_by_video);
 
-            let return_format = formats
-                .get(0)
-                .and_then(|x| Some(x))
-                .unwrap_or(&serde_json::Value::Null);
+            let return_format = formats.get(0);
 
-            if return_format.is_null() {
+            if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.clone());
+            return Ok(return_format.unwrap().clone());
         }
         VideoQuality::LowestVideo => {
             filter_formats(&mut formats, &VideoSearchOptions::Video);
 
             formats.sort_by(sort_formats_by_video);
 
-            let return_format = formats
-                .get(formats.len() - 1)
-                .and_then(|x| Some(x))
-                .unwrap_or(&serde_json::Value::Null);
+            let return_format = formats.get(formats.len() - 1);
 
-            if return_format.is_null() {
+            if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.clone());
+            return Ok(return_format.unwrap().clone());
         }
     }
 }
 
-pub fn sort_formats_by<F>(
-    a: &serde_json::Value,
-    b: &serde_json::Value,
-    sort_by: Vec<F>,
-) -> std::cmp::Ordering
+pub fn sort_formats_by<F>(a: &VideoFormat, b: &VideoFormat, sort_by: Vec<F>) -> std::cmp::Ordering
 where
-    F: FnMut(&serde_json::Value) -> i32,
+    F: Fn(&VideoFormat) -> i32,
 {
-    let mut res = 0;
+    let mut res = std::cmp::Ordering::Equal;
 
-    for mut func in sort_by {
-        res = func(b) - func(a);
+    for func in sort_by {
+        res = func(b).cmp(&func(a));
 
-        if res != 0 {
+        // Is not equal return order
+        if res != std::cmp::Ordering::Equal {
             break;
         }
     }
 
-    // return res;
-    if res >= 1 {
-        return std::cmp::Ordering::Greater;
-    } else if res < 0 {
-        return std::cmp::Ordering::Less;
-    } else {
-        return std::cmp::Ordering::Equal;
-    }
+    return res;
 }
 
-pub fn sort_formats_by_video(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
+pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
     sort_formats_by(
         a,
         b,
         [
-            |form: &serde_json::Value| {
-                let quality_label = form
-                    .get("qualityLabel")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("");
-                let parse_int_regex =
-                    Regex::new(r#"(?m)^\s*((\-|\+)?[0-9]+)\s*"#).expect("IMPOSSIBLE");
-                let quality_label = parse_int_regex
-                    .captures(quality_label)
+            |form: &VideoFormat| {
+                let quality_label = form.quality_label.clone().unwrap_or("".to_string());
+
+                let quality_label = PARSE_INT_REGEX
+                    .captures(&quality_label)
                     .and_then(|x| x.get(0))
                     .and_then(|x| Some(x.as_str()))
                     .and_then(|x| x.parse::<i32>().ok())
@@ -381,20 +394,14 @@ pub fn sort_formats_by_video(a: &serde_json::Value, b: &serde_json::Value) -> st
 
                 quality_label
             },
-            |form: &serde_json::Value| {
-                form.get("bitrate").and_then(|x| x.as_i64()).unwrap_or(0) as i32
-            },
+            |form: &VideoFormat| form.bitrate as i32,
             // getVideoEncodingRank,
-            |form: &serde_json::Value| {
+            |form: &VideoFormat| {
                 let index = VIDEO_ENCODING_RANKS
                     .iter()
                     .position(|enc| {
-                        form.get("codecs").is_some()
-                            && form
-                                .get("codecs")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .contains(enc)
+                        form.codecs.is_some()
+                            && form.codecs.clone().unwrap_or("".to_string()).contains(enc)
                     })
                     .and_then(|x| Some(x as i32))
                     .unwrap_or(-1);
@@ -406,27 +413,19 @@ pub fn sort_formats_by_video(a: &serde_json::Value, b: &serde_json::Value) -> st
     )
 }
 
-pub fn sort_formats_by_audio(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
+pub fn sort_formats_by_audio(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
     sort_formats_by(
         a,
         b,
         [
-            |form: &serde_json::Value| {
-                form.get("audioBitrate")
-                    .and_then(|x| x.as_i64())
-                    .unwrap_or(0) as i32
-            },
+            |form: &VideoFormat| form.audio_bitrate.unwrap_or(0) as i32,
             // getAudioEncodingRank,
-            |form: &serde_json::Value| {
+            |form: &VideoFormat| {
                 let index = AUDIO_ENCODING_RANKS
                     .iter()
                     .position(|enc| {
-                        form.get("codecs").is_some()
-                            && form
-                                .get("codecs")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .contains(enc)
+                        form.codecs.is_some()
+                            && form.codecs.clone().unwrap_or("".to_string()).contains(enc)
                     })
                     .and_then(|x| Some(x as i32))
                     .unwrap_or(-1);
@@ -438,79 +437,54 @@ pub fn sort_formats_by_audio(a: &serde_json::Value, b: &serde_json::Value) -> st
     )
 }
 
-pub fn sort_formats(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
+pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
     sort_formats_by(
         a,
         b,
         [
             // Formats with both video and audio are ranked highest.
-            |form: &serde_json::Value| {
-                form.get("isHLS").and_then(|x| x.as_bool()).unwrap_or(false) as i32
-            },
-            |form: &serde_json::Value| {
-                form.get("isDashMPD")
-                    .and_then(|x| x.as_bool())
-                    .unwrap_or(false) as i32
-            },
-            |form: &serde_json::Value| {
+            |form: &VideoFormat| form.is_hls as i32,
+            |form: &VideoFormat| form.is_dash_mpd as i32,
+            |form: &VideoFormat| (form.has_video && form.has_audio) as i32,
+            |form: &VideoFormat| form.has_video as i32,
+            |form: &VideoFormat| {
                 (form
-                    .get("contentLength")
-                    .and_then(|x| x.as_i64())
+                    .content_length
+                    .clone()
+                    .unwrap_or("0".to_string())
+                    .parse::<u64>()
                     .unwrap_or(0)
                     > 0) as i32
             },
-            |form: &serde_json::Value| {
-                (form
-                    .get("hasVideo")
-                    .and_then(|x| x.as_bool())
-                    .unwrap_or(false)
-                    && form
-                        .get("hasAudio")
-                        .and_then(|x| x.as_bool())
-                        .unwrap_or(false)) as i32
+            |form: &VideoFormat| {
+                let quality_label = form.quality_label.clone().unwrap_or("".to_string());
+
+                let quality_label = PARSE_INT_REGEX
+                    .captures(&quality_label)
+                    .and_then(|x| x.get(0))
+                    .and_then(|x| Some(x.as_str()))
+                    .and_then(|x| x.parse::<i32>().ok())
+                    .unwrap_or(0i32);
+
+                (quality_label) as i32
             },
-            |form: &serde_json::Value| {
-                form.get("hasVideo")
-                    .and_then(|x| x.as_bool())
-                    .unwrap_or(false) as i32
-            },
-            |form: &serde_json::Value| {
-                form.get("bitrate").and_then(|x| x.as_i64()).unwrap_or(0) as i32
-            },
-            |form: &serde_json::Value| {
-                form.get("audioBitrate")
-                    .and_then(|x| x.as_i64())
-                    .unwrap_or(0) as i32
-            },
+            |form: &VideoFormat| form.bitrate as i32,
+            |form: &VideoFormat| form.audio_bitrate.unwrap_or(0) as i32,
             // getVideoEncodingRank,
-            |form: &serde_json::Value| {
+            |form: &VideoFormat| {
                 let index = VIDEO_ENCODING_RANKS
                     .iter()
-                    .position(|enc| {
-                        form.get("codecs").is_some()
-                            && form
-                                .get("codecs")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .contains(enc)
-                    })
+                    .position(|enc| form.codecs.clone().unwrap_or("".to_string()).contains(enc))
                     .and_then(|x| Some(x as i32))
                     .unwrap_or(-1);
 
                 return index as i32;
             },
             // getAudioEncodingRank,
-            |form: &serde_json::Value| {
+            |form: &VideoFormat| {
                 let index = AUDIO_ENCODING_RANKS
                     .iter()
-                    .position(|enc| {
-                        form.get("codecs").is_some()
-                            && form
-                                .get("codecs")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .contains(enc)
-                    })
+                    .position(|enc| form.codecs.clone().unwrap_or("".to_string()).contains(enc))
                     .and_then(|x| Some(x as i32))
                     .unwrap_or(-1);
 
@@ -779,7 +753,7 @@ fn get_url_video_id(url: &str) -> Option<String> {
     } else if url::Url::parse(url.trim()).unwrap().host_str().is_some()
         && !VALID_QUERY_DOMAINS
             .iter()
-            .any(|domain| domain == &parsed.host_str().unwrap_or_else(|| ""))
+            .any(|domain| domain == &parsed.host_str().unwrap_or(""))
     {
         return None;
     }
@@ -811,7 +785,7 @@ pub fn get_text(obj: &serde_json::Value) -> &serde_json::Value {
                 x.get("simpleText")
             }
         })
-        .unwrap_or_else(|| null_referance)
+        .unwrap_or(null_referance)
 }
 
 pub fn clean_video_details(
@@ -827,11 +801,11 @@ pub fn clean_video_details(
     let mut data = player_response
         .get("microformat")
         .and_then(|x| x.get("playerMicroformatRenderer"))
-        .unwrap_or_else(|| &empty_serde_object)
+        .unwrap_or(&empty_serde_object)
         .clone();
     let player_response_video_details = player_response
         .get("videoDetails")
-        .unwrap_or_else(|| &empty_serde_object)
+        .unwrap_or(&empty_serde_object)
         .clone();
 
     // merge two json objects
@@ -840,34 +814,33 @@ pub fn clean_video_details(
     let embed_object = data
         .get("embed")
         .and_then(|x| x.as_object())
-        .unwrap_or_else(|| &empty_serde_map);
+        .unwrap_or(&empty_serde_map);
     VideoDetails {
-        author: get_author(&initial_response, &player_response).unwrap(),
+        author: get_author(&initial_response, &player_response),
         age_restricted: is_age_restricted(&media),
 
-        media,
         likes: get_likes(&initial_response),
         dislikes: get_dislikes(&initial_response),
 
         video_url: format!("{BASE}{ID}", BASE = BASE_URL, ID = id),
-        storyboards: get_storyboards(&player_response).unwrap(),
-        chapters: get_chapters(&initial_response).unwrap(),
+        storyboards: get_storyboards(&player_response).unwrap_or(vec![]),
+        chapters: get_chapters(&initial_response).unwrap_or(vec![]),
 
         embed: Embed {
             flash_secure_url: embed_object
                 .get("flashSecureUrl")
                 .and_then(|x| x.as_str())
-                .unwrap_or_else(|| "")
+                .unwrap_or("")
                 .to_string(),
             flash_url: embed_object
                 .get("flashUrl")
                 .and_then(|x| x.as_str())
-                .unwrap_or_else(|| "")
+                .unwrap_or("")
                 .to_string(),
             iframe_url: embed_object
                 .get("iframeUrl")
                 .and_then(|x| x.as_str())
-                .unwrap_or_else(|| "")
+                .unwrap_or("")
                 .to_string(),
             height: embed_object
                 .get("height")
@@ -881,7 +854,7 @@ pub fn clean_video_details(
                         x.as_i64()
                     }
                 })
-                .unwrap_or_else(|| 0i64) as i32,
+                .unwrap_or(0i64) as i32,
             width: embed_object
                 .get("width")
                 .and_then(|x| {
@@ -894,132 +867,129 @@ pub fn clean_video_details(
                         x.as_i64()
                     }
                 })
-                .unwrap_or_else(|| 0i64) as i32,
+                .unwrap_or(0i64) as i32,
         },
         title: data
             .get("title")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "")
+            .unwrap_or("")
             .to_string(),
         description: if data.get("shortDescription").is_some() {
             data.get("shortDescription")
                 .and_then(|x| x.as_str())
-                .unwrap_or_else(|| "")
+                .unwrap_or("")
                 .to_string()
         } else {
-            get_text(
-                data.get("description")
-                    .unwrap_or_else(|| &empty_serde_object),
-            )
-            .as_str()
-            .unwrap_or_else(|| "")
-            .to_string()
+            get_text(data.get("description").unwrap_or(&empty_serde_object))
+                .as_str()
+                .unwrap_or("")
+                .to_string()
         },
         length_seconds: data
             .get("lengthSeconds")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "0")
+            .unwrap_or("0")
             .to_string(),
         owner_profile_url: data
             .get("ownerProfileUrl")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "")
+            .unwrap_or("")
             .to_string(),
         external_channel_id: data
             .get("externalChannelId")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "")
+            .unwrap_or("")
             .to_string(),
         is_family_safe: data
             .get("isFamilySafe")
             .and_then(|x| x.as_bool())
-            .unwrap_or_else(|| false),
+            .unwrap_or(false),
         available_countries: data
             .get("availableCountries")
             .and_then(|x| x.as_array())
-            .unwrap_or_else(|| &empty_serde_vec)
+            .unwrap_or(&empty_serde_vec)
             .iter()
-            .map(|x| x.as_str().unwrap_or_else(|| "").to_string())
+            .map(|x| x.as_str().unwrap_or("").to_string())
             .collect::<Vec<String>>(),
         is_unlisted: data
             .get("isUnlisted")
             .and_then(|x| x.as_bool())
-            .unwrap_or_else(|| false),
+            .unwrap_or(false),
         has_ypc_metadata: data
             .get("hasYpcMetadata")
             .and_then(|x| x.as_bool())
-            .unwrap_or_else(|| false),
+            .unwrap_or(false),
         view_count: data
             .get("viewCount")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "0")
+            .unwrap_or("0")
             .to_string(),
         category: data
             .get("category")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "")
+            .unwrap_or("")
             .to_string(),
         publish_date: data
             .get("publishDate")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "")
+            .unwrap_or("")
             .to_string(),
         owner_channel_name: data
             .get("ownerChannelName")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "")
+            .unwrap_or("")
             .to_string(),
         upload_date: data
             .get("uploadDate")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "")
+            .unwrap_or("")
             .to_string(),
         video_id: data
             .get("videoId")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "0")
+            .unwrap_or("0")
             .to_string(),
         keywords: data
             .get("keywords")
             .and_then(|x| x.as_array())
-            .unwrap_or_else(|| &empty_serde_vec)
+            .unwrap_or(&empty_serde_vec)
             .iter()
-            .map(|x| x.as_str().unwrap_or_else(|| "").to_string())
+            .map(|x| x.as_str().unwrap_or("").to_string())
             .collect::<Vec<String>>(),
         channel_id: data
             .get("channelId")
             .and_then(|x| x.as_str())
-            .unwrap_or_else(|| "")
+            .unwrap_or("")
             .to_string(),
         is_owner_viewing: data
             .get("isOwnerViewing")
             .and_then(|x| x.as_bool())
-            .unwrap_or_else(|| false),
+            .unwrap_or(false),
         is_crawlable: data
             .get("isCrawlable")
             .and_then(|x| x.as_bool())
-            .unwrap_or_else(|| false),
+            .unwrap_or(false),
         allow_ratings: data
             .get("allowRatings")
             .and_then(|x| x.as_bool())
-            .unwrap_or_else(|| false),
+            .unwrap_or(false),
         is_private: data
             .get("isPrivate")
             .and_then(|x| x.as_bool())
-            .unwrap_or_else(|| false),
+            .unwrap_or(false),
         is_unplugged_corpus: data
             .get("isUnpluggedCorpus")
             .and_then(|x| x.as_bool())
-            .unwrap_or_else(|| false),
+            .unwrap_or(false),
         is_live_content: data
             .get("isLiveContent")
             .and_then(|x| x.as_bool())
-            .unwrap_or_else(|| false),
+            .unwrap_or(false),
         thumbnails: data
             .get("thumbnail")
             .and_then(|x| x.get("thumbnails"))
             .and_then(|x| x.as_array())
-            .unwrap_or_else(|| &empty_serde_vec)
+            .unwrap_or(&empty_serde_vec)
             .iter()
             .map(|x| Thumbnail {
                 width: x
@@ -1034,7 +1004,7 @@ pub fn clean_video_details(
                             x.as_i64()
                         }
                     })
-                    .unwrap_or_else(|| 0i64) as i32,
+                    .unwrap_or(0i64) as i32,
                 height: x
                     .get("height")
                     .and_then(|x| {
@@ -1047,11 +1017,11 @@ pub fn clean_video_details(
                             x.as_i64()
                         }
                     })
-                    .unwrap_or_else(|| 0i64) as i32,
+                    .unwrap_or(0i64) as i32,
                 url: x
                     .get("url")
                     .and_then(|x| x.as_str())
-                    .unwrap_or_else(|| "")
+                    .unwrap_or("")
                     .to_string(),
             })
             .collect::<Vec<Thumbnail>>(),
@@ -1068,11 +1038,11 @@ pub fn is_verified(badges: &serde_json::Value) -> bool {
                     let json = serde_json::json!(c);
                     json["metadataBadgeRenderer"]["tooltip"] == "Verified"
                 })
-                .unwrap_or_else(|| usize::MAX);
+                .unwrap_or(usize::MAX);
 
             Some(verified_index < usize::MAX)
         })
-        .unwrap_or_else(|| false)
+        .unwrap_or(false)
 }
 
 pub fn is_age_restricted(media: &serde_json::Value) -> bool {
@@ -1091,13 +1061,13 @@ pub fn is_age_restricted(media: &serde_json::Value) -> bool {
                             value
                                 .as_str()
                                 .and_then(|c| Some(bool_vec.push(c.contains(url))))
-                                .unwrap_or_else(|| bool_vec.push(false));
+                                .unwrap_or(bool_vec.push(false));
                         }
                     }
 
                     Some(bool_vec.iter().any(|v| v == &true))
                 })
-                .unwrap_or_else(|| false)
+                .unwrap_or(false)
         })
     }
 
@@ -1114,7 +1084,7 @@ pub fn is_rental(player_response: &serde_json::Value) -> bool {
     return playability
         .and_then(|x| x.get("status"))
         .and_then(|x| x.as_str())
-        .unwrap_or_else(|| "")
+        .unwrap_or("")
         == "UNPLAYABLE"
         && playability
             .and_then(|x| x.get("errorScreen"))
@@ -1278,12 +1248,83 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
     functions
 }
 
+pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, VideoError> {
+    let ipv6_format: String = ip.into();
+
+    if !IPV6_REGEX.is_match(&ipv6_format) {
+        return Err(VideoError::InvalidIPv6Format);
+    }
+
+    let format_attr = ipv6_format.split("/").collect::<Vec<&str>>();
+    let raw_addr = format_attr.get(0);
+    let raw_mask = format_attr.get(1);
+
+    if raw_addr.is_none() || raw_mask.is_none() {
+        return Err(VideoError::InvalidIPv6Format);
+    }
+
+    let raw_addr = raw_addr.unwrap();
+    let raw_mask = raw_mask.unwrap();
+
+    let base_10_mask = raw_mask.parse::<u8>();
+    if base_10_mask.is_err() {
+        return Err(VideoError::InvalidIPv6Subnet);
+    }
+
+    let mut base_10_mask = base_10_mask.unwrap();
+
+    if base_10_mask > 128 || base_10_mask < 24 {
+        return Err(VideoError::InvalidIPv6Subnet);
+    }
+
+    let base_10_addr = normalize_ip(*raw_addr);
+    let mut rng = rand::thread_rng();
+
+    let mut random_addr = [0u16; 8];
+    rng.fill(&mut random_addr);
+
+    for (i, addr_value) in random_addr.iter_mut().enumerate() {
+        let static_bits = std::cmp::min(base_10_mask, 16);
+        base_10_mask -= static_bits;
+
+        let mask = (0xffff - ((2_u16.pow((16 - static_bits).into())) - 1)) as u16;
+
+        *addr_value = (base_10_addr[i] & mask) + (*addr_value & (mask ^ 0xffff));
+    }
+
+    Ok(std::net::IpAddr::from(random_addr))
+}
+
+pub fn normalize_ip(ip: impl Into<String>) -> Vec<u16> {
+    let ip: String = ip.into();
+    let parts = ip
+        .split("::")
+        .map(|x| x.split(":").collect::<Vec<&str>>())
+        .collect::<Vec<Vec<&str>>>();
+
+    let empty_array = vec![];
+    let part_start = parts.clone().get(0).unwrap_or(&empty_array).clone();
+    let mut part_end = parts.clone().get(1).unwrap_or(&empty_array).clone();
+
+    part_end.reverse();
+
+    let mut full_ip: Vec<u16> = vec![0, 0, 0, 0, 0, 0, 0, 0];
+
+    for i in 0..std::cmp::min(part_start.len(), 8) {
+        full_ip[i] = u16::from_str_radix(part_start[i], 16).unwrap_or(0)
+    }
+
+    for i in 0..std::cmp::min(part_end.len(), 8) {
+        full_ip[7 - i] = u16::from_str_radix(part_end[i], 16).unwrap_or(0)
+    }
+
+    full_ip
+}
+
 pub fn time_to_ms(duration: &str) -> usize {
     let mut ms = 0;
     for (i, curr) in duration.split(':').into_iter().rev().enumerate() {
-        ms = ms
-            + (curr.parse::<usize>().unwrap_or_else(|_e| 0)
-                * (u32::pow(60 as u32, i as u32) as usize));
+        ms = ms + (curr.parse::<usize>().unwrap_or(0) * (u32::pow(60 as u32, i as u32) as usize));
     }
     ms = ms * 1000;
     ms
@@ -1303,12 +1344,7 @@ pub fn parse_abbreviated_number(time_str: &str) -> usize {
         let multi;
 
         match caps.get(1) {
-            Some(regex_match) => {
-                num = regex_match
-                    .as_str()
-                    .parse::<f32>()
-                    .unwrap_or_else(|_x| 0f32)
-            }
+            Some(regex_match) => num = regex_match.as_str().parse::<f32>().unwrap_or(0f32),
             None => num = 0f32,
         }
 

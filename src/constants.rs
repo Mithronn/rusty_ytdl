@@ -33,6 +33,13 @@ pub(crate) static DEFAULT_HEADERS: Lazy<reqwest::header::HeaderMap> = Lazy::new(
     headers
 });
 
+pub(crate) const IPV6_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"^(([0-9a-f]{1,4}:)(:[0-9a-f]{1,4}){1,6}|([0-9a-f]{1,4}:){1,2}(:[0-9a-f]{1,4}){1,5}|([0-9a-f]{1,4}:){1,3}(:[0-9a-f]{1,4}){1,4}|([0-9a-f]{1,4}:){1,4}(:[0-9a-f]{1,4}){1,3}|([0-9a-f]{1,4}:){1,5}(:[0-9a-f]{1,4}){1,2}|([0-9a-f]{1,4}:){1,6}(:[0-9a-f]{1,4})|([0-9a-f]{1,4}:){1,7}(([0-9a-f]{1,4})|:))/(1[0-1]\d|12[0-8]|\d{1,2})$"#).unwrap()
+});
+
+pub(crate) const PARSE_INT_REGEX: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r#"(?m)^\s*((\-|\+)?[0-9]+)\s*"#).unwrap());
+
 pub static FORMATS: Lazy<serde_json::Value> = Lazy::new(|| {
     serde_json::json!({
       "5": {

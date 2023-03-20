@@ -1,10 +1,11 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::structs::{Author, Chapter, StoryBoard, Thumbnail};
+use crate::constants::BASE_URL;
+use crate::structs::{Author, Chapter, RelatedVideo, StoryBoard, Thumbnail};
 use crate::utils::{get_text, is_verified, parse_abbreviated_number, time_to_ms};
 
-pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
+pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<RelatedVideo>> {
     let mut rvs_params: Vec<&str> = vec![];
     let mut secondary_results: Vec<serde_json::Value> = vec![];
 
@@ -45,7 +46,7 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<serde_json::Va
     let contents_fallback: Vec<serde_json::Value> = vec![];
     let fallback_value = serde_json::map::Map::new();
 
-    let mut videos: Vec<serde_json::Value> = vec![];
+    let mut videos: Vec<RelatedVideo> = vec![];
     for result in secondary_results {
         let details = result
             .as_object()
@@ -98,21 +99,30 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<serde_json::Va
 pub fn parse_related_video(
     details: &serde_json::map::Map<String, serde_json::Value>,
     rvs_params: &Vec<&str>,
-) -> Option<serde_json::Value> {
+) -> Option<RelatedVideo> {
     #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
     struct QueryParams {
         id: String,
         short_view_count_text: String,
         length_seconds: String,
     }
-    let mut view_count = get_text(&details["viewCountText"])
-        .as_str()
-        .unwrap_or("".into());
+    let mut view_count = if details.contains_key("viewCountText") {
+        get_text(&details["viewCountText"])
+            .as_str()
+            .unwrap_or("".into())
+    } else {
+        "0"
+    };
 
-    let mut short_view_count = get_text(&details["shortViewCountText"])
-        .as_str()
-        .unwrap_or("".into())
-        .to_string();
+    let mut short_view_count = if details.contains_key("shortViewCountText") {
+        get_text(&details["shortViewCountText"])
+            .as_str()
+            .unwrap_or("".into())
+            .to_string()
+    } else {
+        "0".to_string()
+    };
+
     let regex = Regex::new(r"^\d").unwrap();
 
     if !regex.is_match(&short_view_count) {
@@ -192,43 +202,206 @@ pub fn parse_related_video(
             )
         })
         .unwrap_or("");
-    let video = serde_json::json!({
-        "id": details["videoId"],
-        "title": get_text(&details["title"]),
-        "published": if details.contains_key("publishedTimeText") {
-            get_text(&details["publishedTimeText"]).clone()
+
+    let view_count_regex = Regex::new(r",").unwrap();
+
+    let video = RelatedVideo {
+        id: details
+            .get("videoId")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        title: if details.contains_key("title") {
+            get_text(&details["title"])
+                .as_str()
+                .unwrap_or("")
+                .to_string()
         } else {
-            serde_json::json!("")
+            String::from("")
         },
-        "author": {
-            "id": channel_id,
-            "name": get_text(&details["shortBylineText"]),
-            "user": author_user,
-            "channel_url": format!("https://www.youtube.com/channel/{channel_id}",channel_id = channel_id.as_str().unwrap_or("")),
-            "user_url": format!("https://www.youtube.com/user/{user}",user = author_user),
-            "thumbnails": details["channelThumbnail"]["thumbnails"],
-            "verified": if details.contains_key("ownerBadges") {
-                is_verified(&details["ownerBadges"])
+        url: if details.contains_key("videoId") {
+            let id = details
+                .get("videoId")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !id.is_empty() {
+                format!("{}{}", BASE_URL, id)
             } else {
-                false
-            },
-        },
-        "short_view_count_text": short_view_count.split(' ').collect::<Vec<&str>>().get(0).unwrap_or(&""),
-        "view_count": Regex::new(r",").unwrap().replace_all(view_count, ""),
-        "length_seconds": if details.contains_key("lengthText") {
-            let time = (time_to_ms(get_text(&details["lengthText"]).as_str().unwrap_or("0")) / 1000) as f32;
-            time.floor()
+                String::from("")
+            }
         } else {
-            0 as f32
+            String::from("")
         },
-        "thumbnails": details["thumbnail"]["thumbnails"],
-        "richThumbnails": if details.contains_key("richThumbnail") {
-            details["richThumbnail"]["movingThumbnailRenderer"]["movingThumbnailDetails"]["thumbnails"].clone()
+        published: if details.contains_key("publishedTimeText") {
+            get_text(&details["publishedTimeText"])
+                .as_str()
+                .unwrap_or("")
+                .to_string()
         } else {
-            serde_json::json!([])
+            String::from("")
         },
-        "isLive": is_live
-    });
+        author: if !browse_end_point.is_null() {
+            Some(Author {
+                id: channel_id.as_str().unwrap_or("").to_string(),
+                name: if details.contains_key("shortBylineText") {
+                    get_text(&details["shortBylineText"])
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string()
+                } else {
+                    String::from("")
+                },
+                user: author_user.to_string(),
+                channel_url: if !channel_id.as_str().unwrap_or("").to_string().is_empty() {
+                    format!(
+                        "https://www.youtube.com/channel/{channel_id}",
+                        channel_id = channel_id.as_str().unwrap_or("")
+                    )
+                } else {
+                    String::from("")
+                },
+                external_channel_url: if !channel_id.as_str().unwrap_or("").to_string().is_empty() {
+                    format!(
+                        "https://www.youtube.com/channel/{channel_id}",
+                        channel_id = channel_id.as_str().unwrap_or("")
+                    )
+                } else {
+                    String::from("")
+                },
+                user_url: if !author_user.is_empty() {
+                    if author_user.starts_with("@") {
+                        format!("https://www.youtube.com/{user}", user = author_user)
+                    } else {
+                        String::from("")
+                    }
+                } else {
+                    String::from("")
+                },
+                thumbnails: if !details["channelThumbnail"]["thumbnails"].is_null() {
+                    details["channelThumbnail"]["thumbnails"]
+                        .as_array()
+                        .and_then(|f| {
+                            Some(
+                                f.iter()
+                                    .map(|x| Thumbnail {
+                                        width: x
+                                            .get("width")
+                                            .and_then(|x| {
+                                                if x.is_string() {
+                                                    x.as_str().and_then(|x| {
+                                                        match x.parse::<i64>() {
+                                                            Ok(a) => Some(a),
+                                                            Err(_err) => Some(0i64),
+                                                        }
+                                                    })
+                                                } else {
+                                                    x.as_i64()
+                                                }
+                                            })
+                                            .unwrap_or(0i64)
+                                            as i32,
+                                        height: x
+                                            .get("height")
+                                            .and_then(|x| {
+                                                if x.is_string() {
+                                                    x.as_str().and_then(|x| {
+                                                        match x.parse::<i64>() {
+                                                            Ok(a) => Some(a),
+                                                            Err(_err) => Some(0i64),
+                                                        }
+                                                    })
+                                                } else {
+                                                    x.as_i64()
+                                                }
+                                            })
+                                            .unwrap_or(0i64)
+                                            as i32,
+                                        url: x
+                                            .get("url")
+                                            .and_then(|x| x.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                    })
+                                    .collect::<Vec<Thumbnail>>(),
+                            )
+                        })
+                        .unwrap_or(vec![])
+                } else {
+                    vec![]
+                },
+                verified: if details.contains_key("ownerBadges") {
+                    is_verified(&details["ownerBadges"])
+                } else {
+                    false
+                },
+                subscriber_count: 0,
+            })
+        } else {
+            None
+        },
+        short_view_count_text: short_view_count
+            .split(' ')
+            .collect::<Vec<&str>>()
+            .get(0)
+            .unwrap_or(&"")
+            .to_string(),
+        view_count: view_count_regex.replace_all(view_count, "").to_string(),
+        length_seconds: if details.contains_key("lengthText") {
+            let time = (time_to_ms(get_text(&details["lengthText"]).as_str().unwrap_or("0")) / 1000)
+                as f32;
+            time.floor().to_string()
+        } else {
+            "0".to_string()
+        },
+        thumbnails: if !details["thumbnail"]["thumbnails"].is_null() {
+            details["thumbnail"]["thumbnails"]
+                .as_array()
+                .and_then(|f| {
+                    Some(
+                        f.iter()
+                            .map(|x| Thumbnail {
+                                width: x
+                                    .get("width")
+                                    .and_then(|x| {
+                                        if x.is_string() {
+                                            x.as_str().and_then(|x| match x.parse::<i64>() {
+                                                Ok(a) => Some(a),
+                                                Err(_err) => Some(0i64),
+                                            })
+                                        } else {
+                                            x.as_i64()
+                                        }
+                                    })
+                                    .unwrap_or(0i64) as i32,
+                                height: x
+                                    .get("height")
+                                    .and_then(|x| {
+                                        if x.is_string() {
+                                            x.as_str().and_then(|x| match x.parse::<i64>() {
+                                                Ok(a) => Some(a),
+                                                Err(_err) => Some(0i64),
+                                            })
+                                        } else {
+                                            x.as_i64()
+                                        }
+                                    })
+                                    .unwrap_or(0i64) as i32,
+                                url: x
+                                    .get("url")
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            })
+                            .collect::<Vec<Thumbnail>>(),
+                    )
+                })
+                .unwrap_or(vec![])
+        } else {
+            vec![]
+        },
+        is_live,
+    };
 
     Some(video)
 }
@@ -327,10 +500,6 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                         .and_then(|x| x.as_str())
                         .unwrap_or("");
                 }
-
-                // const TITLE_TO_CATEGORY: = {
-                //     song: { name: 'Music', url: 'https://music.youtube.com/' },
-                // };
 
                 let mut category = "";
                 let mut category_url = "";

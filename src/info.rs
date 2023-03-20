@@ -6,12 +6,12 @@ use xml_oxide::{sax::parser::Parser, sax::Event};
 
 use crate::constants::{BASE_URL, DEFAULT_HEADERS, FORMATS};
 use crate::info_extras::{get_media, get_related_videos};
-use crate::structs::{VideoError, VideoInfo, VideoOptions};
+use crate::structs::{VideoError, VideoFormat, VideoInfo, VideoOptions};
 
 use crate::utils::{
     add_format_meta, choose_format, clean_video_details, get_functions, get_html5player,
-    get_video_id, is_not_yet_broadcasted, is_play_error, is_private_video, is_rental,
-    parse_video_formats, sort_formats,
+    get_random_v6_ip, get_video_id, is_not_yet_broadcasted, is_play_error, is_private_video,
+    is_rental, parse_video_formats, sort_formats,
 };
 
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
@@ -57,6 +57,11 @@ impl Video {
 
         if options.request_options.proxy.is_some() {
             client = client.proxy(options.request_options.proxy.as_ref().unwrap().clone());
+        }
+
+        if options.request_options.ipv6_block.is_some() {
+            let ipv6 = get_random_v6_ip(options.request_options.ipv6_block.as_ref().unwrap())?;
+            client = client.local_address(ipv6);
         }
 
         if options.request_options.cookies.is_some() {
@@ -131,45 +136,49 @@ impl Video {
         let initial_response: serde_json::Value =
             serde_json::from_str(&initial_response_string).unwrap();
 
-        let player_response_clone = &player_response.clone();
-        let initial_response_clone = &initial_response.clone();
-
-        if is_play_error(&player_response_clone, ["ERROR"].to_vec()) {
+        if is_play_error(&player_response, ["ERROR"].to_vec()) {
             return Err(VideoError::VideoNotFound);
         }
 
-        if is_private_video(&player_response_clone) {
+        if is_private_video(&player_response) {
             return Err(VideoError::VideoIsPrivate);
         }
 
         if player_response.get("streamingData").is_none()
-            || is_rental(&player_response_clone)
-            || is_not_yet_broadcasted(&player_response_clone)
+            || is_rental(&player_response)
+            || is_not_yet_broadcasted(&player_response)
         {
             return Err(VideoError::VideoSourceNotFound);
         }
 
-        let media = get_media(&initial_response_clone).unwrap();
-
         let video_details = clean_video_details(
-            &initial_response_clone,
-            &player_response_clone,
-            media,
+            &initial_response,
+            &player_response,
+            get_media(&initial_response).unwrap(),
             self.video_id.clone(),
         );
 
-        let html5player = get_html5player(response.as_str()).unwrap();
+        let dash_manifest_url = player_response
+            .get("streamingData")
+            .and_then(|x| x.get("dashManifestUrl"))
+            .and_then(|x| x.as_str())
+            .and_then(|x| Some(x.to_string()));
+
+        let hls_manifest_url = player_response
+            .get("streamingData")
+            .and_then(|x| x.get("hlsManifestUrl"))
+            .and_then(|x| x.as_str())
+            .and_then(|x| Some(x.to_string()));
 
         return Ok(VideoInfo {
-            player_response,
-            initial_response,
-            html5player: html5player.clone(),
+            dash_manifest_url,
+            hls_manifest_url,
             formats: parse_video_formats(
-                &player_response_clone,
-                get_functions(html5player, &client).await,
+                &player_response,
+                get_functions(get_html5player(response.as_str()).unwrap(), &client).await,
             )
             .unwrap_or(vec![]),
-            related_videos: get_related_videos(&initial_response_clone).unwrap_or(vec![]),
+            related_videos: get_related_videos(&initial_response).unwrap_or(vec![]),
             video_details,
         });
     }
@@ -179,32 +188,12 @@ impl Video {
 
         let mut info = self.get_basic_info().await?;
 
-        let has_manifest = info
-            .player_response
-            .get("streamingData")
-            .and_then(|x| x.get("dashManifestUrl"))
-            .is_some()
-            || info
-                .player_response
-                .get("streamingData")
-                .and_then(|x| x.get("hlsManifestUrl"))
-                .is_some();
+        let has_manifest = info.dash_manifest_url.is_some() || info.hls_manifest_url.is_some();
 
-        if has_manifest
-            && info
-                .player_response
-                .get("streamingData")
-                .and_then(|x| x.get("dashManifestUrl"))
-                .is_some()
-        {
+        if has_manifest && info.dash_manifest_url.is_some() {
             // only support HLS-Formats for livestreams for now so all non-HLS streams will be ignored
             //
-            // let url = info
-            //     .player_response
-            //     .get("streamingData")
-            //     .and_then(|x| x.get("dashManifestUrl"))
-            //     .and_then(|x| x.as_str())
-            //     .unwrap_or_else(|| "");
+            // let url = info.dash_manifest_url.as_ref().unwrap();
             // let mut dash_manifest_formats = get_dash_manifest(url, &client).await;
 
             // for format in dash_manifest_formats.iter_mut() {
@@ -220,25 +209,20 @@ impl Video {
 
             //         // Add other metadatas to format map
             //         add_format_meta(format_as_object);
-            //         info.formats.insert(info.formats.len(), format.clone());
+
+            //         let format: Result<VideoFormat, serde_json::Error> =
+            //             serde_json::from_value(format.clone());
+            //         if format.is_err() {
+            //             continue;
+            //         }
+            //         info.formats.insert(info.formats.len(), format.unwrap());
             //     }
             // }
         }
 
-        if has_manifest
-            && info
-                .player_response
-                .get("streamingData")
-                .and_then(|x| x.get("hlsManifestUrl"))
-                .is_some()
-        {
-            let url = info
-                .player_response
-                .get("streamingData")
-                .and_then(|x| x.get("hlsManifestUrl"))
-                .and_then(|x| x.as_str())
-                .unwrap_or_else(|| "");
-            let unformated_formats = get_m3u8(url, &client).await;
+        if has_manifest && info.hls_manifest_url.is_some() {
+            let url = info.hls_manifest_url.as_ref().unwrap();
+            let unformated_formats = get_m3u8(&url, &client).await;
 
             let default_formats = FORMATS.as_object().expect("IMPOSSIBLE");
             // Push formated infos to formats
@@ -283,7 +267,11 @@ impl Video {
                 // Add other metadatas to format map
                 add_format_meta(format_as_object_mut);
 
-                info.formats.insert(info.formats.len(), format);
+                let format: Result<VideoFormat, serde_json::Error> = serde_json::from_value(format);
+                if format.is_err() {
+                    continue;
+                }
+                info.formats.insert(info.formats.len(), format.unwrap());
             }
         }
 
@@ -300,29 +288,18 @@ impl Video {
             .map_err(|_op| VideoError::VideoSourceNotFound)?;
 
         // Only check for HLS formats
-        let is_live_hls = format
-            .as_object()
-            .and_then(|x| x.get("isHLS"))
-            .and_then(|x| x.as_bool());
-
-        if is_live_hls.unwrap_or(false) {
-            // Currently not supporting live streams
+        //
+        // Currently not supporting live streams
+        if format.is_hls {
             return Ok(vec![]);
         }
 
-        let link = format.as_object().and_then(|x| {
-            Some(
-                x.get("url")
-                    .and_then(|x| Some(x.as_str().unwrap_or("").to_string()))
-                    .unwrap_or("".to_string()),
-            )
-        });
+        // Normal video
+        let link = format.url;
 
-        if link.is_none() {
+        if link.is_empty() {
             return Err(VideoError::VideoSourceNotFound);
         }
-
-        let link = link.unwrap();
 
         let dl_chunk_size = if self.options.download_options.dl_chunk_size.is_some() {
             self.options.download_options.dl_chunk_size.unwrap()
@@ -382,11 +359,8 @@ impl Video {
         let mut start = 0;
         let mut end = start + dl_chunk_size;
 
-        let content_length = format.as_object().and_then(|x| {
-            x.get("contentLength")
-                .and_then(|x| Some(x.as_str().unwrap_or("").to_string()))
-        });
-        let mut content_length = content_length
+        let mut content_length = format
+            .content_length
             .unwrap_or("0".to_string())
             .parse::<u64>()
             .unwrap_or(0);
@@ -529,7 +503,7 @@ async fn get_dash_manifest(url: &str, client: &reqwest::Client) -> Vec<serde_jso
                                     );
                                 } else {
                                     format_as_object_mut.insert(
-                                        "audioSamplingRate".to_string(),
+                                        "audioSampleRate".to_string(),
                                         serde_json::Value::Number(
                                             representation
                                                 .get("audiosamplingrate")
