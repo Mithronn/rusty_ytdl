@@ -121,12 +121,12 @@ Generated download links are valid for 6 hours, and may only be downloadable fro
 
 ### Ratelimits
 
-When doing to many requests YouTube might block. This will result in your requests getting denied with HTTP-StatusCode 429. The following Steps might help you:
+When doing to many requests YouTube might block. This will result in your requests getting denied with HTTP Status Code 429. The following steps might help you:
 
 - Use proxies (you can find an example [proxy](examples/proxy.rs))
-- Extend on the Proxy Idea by rotating (IPv6-)Addresses (you can find an example [ipv6](examples/ipv6.rs))
+- Extend on the Proxy Idea by rotating (IPv6)Addresses (you can find an example [IPv6](examples/ipv6.rs))
 - Use cookies (you can find an example [cookies](examples/cookies.rs))
-  - for this to take effect you have to FIRST wait for the current ratelimit to expire
+  - for this to take effect you have to first wait for the current ratelimit to expire!
 - Wait it out
 
 # Installation
@@ -139,5 +139,5 @@ Or add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rusty_ytdl = "0.3.0"
+rusty_ytdl = "0.4.0"
 ```
