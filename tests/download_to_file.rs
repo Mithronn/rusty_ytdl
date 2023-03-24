@@ -1,7 +1,7 @@
 use rusty_ytdl;
 
 #[tokio::test]
-async fn download() {
+async fn download_to_file() {
     use rusty_ytdl::Video;
     use std::io::Write;
 
