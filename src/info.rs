@@ -130,35 +130,39 @@ impl Video {
 
         let response = response_first.unwrap();
 
-        let document = Html::parse_document(&response);
-        let scripts_selector = Selector::parse("script").unwrap();
-        let mut player_response_string = document
-            .select(&scripts_selector)
-            .filter(|x| x.inner_html().contains("var ytInitialPlayerResponse ="))
-            .map(|x| x.inner_html().replace("var ytInitialPlayerResponse =", ""))
-            .into_iter()
-            .nth(0)
-            .unwrap()
-            .trim()
-            .to_string();
-        let mut initial_response_string = document
-            .select(&scripts_selector)
-            .filter(|x| x.inner_html().contains("var ytInitialData ="))
-            .map(|x| x.inner_html().replace("var ytInitialData =", ""))
-            .into_iter()
-            .nth(0)
-            .unwrap()
-            .trim()
-            .to_string();
+        let (player_response, initial_response): (serde_json::Value, serde_json::Value) = {
+            let document = Html::parse_document(&response);
+            let scripts_selector = Selector::parse("script").unwrap();
+            let mut player_response_string = document
+                .select(&scripts_selector)
+                .filter(|x| x.inner_html().contains("var ytInitialPlayerResponse ="))
+                .map(|x| x.inner_html().replace("var ytInitialPlayerResponse =", ""))
+                .into_iter()
+                .nth(0)
+                .unwrap()
+                .trim()
+                .to_string();
+            let mut initial_response_string = document
+                .select(&scripts_selector)
+                .filter(|x| x.inner_html().contains("var ytInitialData ="))
+                .map(|x| x.inner_html().replace("var ytInitialData =", ""))
+                .into_iter()
+                .nth(0)
+                .unwrap()
+                .trim()
+                .to_string();
 
-        // remove json objects' last element (;)
-        player_response_string.pop();
-        initial_response_string.pop();
+            // remove json objects' last element (;)
+            player_response_string.pop();
+            initial_response_string.pop();
 
-        let player_response: serde_json::Value =
-            serde_json::from_str(&player_response_string).unwrap();
-        let initial_response: serde_json::Value =
-            serde_json::from_str(&initial_response_string).unwrap();
+            let player_response: serde_json::Value =
+                serde_json::from_str(&player_response_string).unwrap();
+            let initial_response: serde_json::Value =
+                serde_json::from_str(&initial_response_string).unwrap();
+
+            (player_response, initial_response)
+        };
 
         if is_play_error(&player_response, ["ERROR"].to_vec()) {
             return Err(VideoError::VideoNotFound);
