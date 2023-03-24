@@ -1,3 +1,4 @@
+use crate::structs::EscapeSequenze;
 use once_cell::sync::Lazy;
 
 pub const BASE_URL: &str = "https://www.youtube.com/watch?v=";
@@ -39,6 +40,31 @@ pub(crate) const IPV6_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
 
 pub(crate) const PARSE_INT_REGEX: Lazy<regex::Regex> =
     Lazy::new(|| regex::Regex::new(r#"(?m)^\s*((\-|\+)?[0-9]+)\s*"#).unwrap());
+
+pub(crate) const ESCAPING_SEQUENZES: Lazy<[EscapeSequenze; 4]> = Lazy::new(|| {
+    [
+        EscapeSequenze {
+            start: r#"""#.to_string(),
+            end: r#"""#.to_string(),
+            start_prefix: None,
+        },
+        EscapeSequenze {
+            start: "'".to_string(),
+            end: "'".to_string(),
+            start_prefix: None,
+        },
+        EscapeSequenze {
+            start: "`".to_string(),
+            end: "`".to_string(),
+            start_prefix: None,
+        },
+        EscapeSequenze {
+            start: "/".to_string(),
+            end: "/".to_string(),
+            start_prefix: Some(regex::Regex::new(r#"(^|[\[{:;,])\s?$"#).expect("IMPOSSIBLE")),
+        },
+    ]
+});
 
 pub static FORMATS: Lazy<serde_json::Value> = Lazy::new(|| {
     serde_json::json!({

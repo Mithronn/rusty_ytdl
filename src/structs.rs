@@ -106,6 +106,8 @@ pub enum VideoError {
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
     #[error(transparent)]
+    ReqwestMiddleware(#[from] reqwest_middleware::Error),
+    #[error(transparent)]
     URLParseError(#[from] url::ParseError),
     #[error("Body cannot parsed")]
     BodyCannotParsed,
@@ -322,6 +324,13 @@ pub struct Embed {
     pub iframe_url: String,
     pub height: i32,
     pub width: i32,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct EscapeSequenze {
+    pub start: String,
+    pub end: String,
+    pub start_prefix: Option<regex::Regex>,
 }
 
 pub trait StringUtils {

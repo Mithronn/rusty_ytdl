@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 use urlencoding::decode;
 
 use crate::constants::{
-    AGE_RESTRICTED_URLS, AUDIO_ENCODING_RANKS, BASE_URL, IPV6_REGEX, PARSE_INT_REGEX,
-    VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
+    AGE_RESTRICTED_URLS, AUDIO_ENCODING_RANKS, BASE_URL, ESCAPING_SEQUENZES, IPV6_REGEX,
+    PARSE_INT_REGEX, VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
 };
 use crate::info_extras::{get_author, get_chapters, get_dislikes, get_likes, get_storyboards};
 use crate::structs::{
-    Embed, StringUtils, Thumbnail, VideoDetails, VideoError, VideoFormat, VideoOptions,
-    VideoQuality, VideoSearchOptions,
+    Embed, EscapeSequenze, StringUtils, Thumbnail, VideoDetails, VideoError, VideoFormat,
+    VideoOptions, VideoQuality, VideoSearchOptions,
 };
 
 pub fn get_cver(info: &serde_json::Value) -> &str {
@@ -822,7 +822,7 @@ pub fn clean_video_details(
         likes: get_likes(&initial_response),
         dislikes: get_dislikes(&initial_response),
 
-        video_url: format!("{BASE}{ID}", BASE = BASE_URL, ID = id),
+        video_url: format!("{BASE_URL}{id}"),
         storyboards: get_storyboards(&player_response).unwrap_or(vec![]),
         chapters: get_chapters(&initial_response).unwrap_or(vec![]),
 
@@ -1134,18 +1134,27 @@ pub fn is_private_video(player_response: &serde_json::Value) -> bool {
 
 pub async fn get_functions(
     html5player: impl Into<String>,
-    client: &reqwest::Client,
-) -> Vec<(String, String)> {
-    let response = client
-        .get(format!("https://www.youtube.com/{}", html5player.into()))
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
+    client: &reqwest_middleware::ClientWithMiddleware,
+) -> Result<Vec<(String, String)>, VideoError> {
+    let mut url = url::Url::parse(BASE_URL).expect("IMPOSSIBLE");
+    url.set_path(&html5player.into());
+    url.query_pairs_mut().clear();
 
-    extract_functions(response)
+    let url = url.as_str();
+
+    let response = client.get(url).send().await;
+
+    if response.is_err() {
+        return Err(VideoError::ReqwestMiddleware(response.err().unwrap()));
+    }
+
+    let response = response.unwrap().text().await;
+
+    if response.is_err() {
+        return Err(VideoError::BodyCannotParsed);
+    }
+
+    Ok(extract_functions(response.unwrap()))
 }
 
 pub fn extract_functions(body: String) -> Vec<(String, String)> {
@@ -1156,7 +1165,7 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
             return String::new();
         }
 
-        let function_start = format!(r#"var {function_name}={{"#, function_name = function_name);
+        let function_start = format!(r#"var {function_name}={{"#);
         let ndx = body.find(function_start.as_str());
 
         if ndx.is_none() {
@@ -1167,7 +1176,6 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
 
         let return_formatted_string = format!(
             "var {function_name}={after_sub_body}",
-            function_name = function_name,
             after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("null")),
         );
 
@@ -1178,22 +1186,19 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
         let function_name = between(body.as_str(), r#"a.set("alr","yes");c&&(c="#, "(decodeURIC");
         // println!("decipher function name: {}", function_name);
         if function_name.len() > 0 {
-            let function_start =
-                format!("{function_name}=function(a)", function_name = function_name);
+            let function_start = format!("{function_name}=function(a)");
             let ndx = body.find(function_start.as_str());
 
             if ndx.is_some() {
                 let sub_body = body.slice((ndx.unwrap() + function_start.len())..);
                 let mut function_body = format!(
                     "var {function_start}{cut_after_js_sub_body}",
-                    function_start = function_start,
                     cut_after_js_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}"))
                 );
 
                 function_body = format!(
                     "{manipulated_body};{function_body};",
                     manipulated_body = extract_manipulations(body.clone(), function_body.as_str()),
-                    function_body = function_body,
                 );
 
                 function_body.retain(|c| c != '\n');
@@ -1222,18 +1227,23 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
         // println!("ncode function name: {}", function_name);
 
         if function_name.len() > 0 {
-            let function_start =
-                format!("{function_name}=function(a)", function_name = function_name);
+            let function_start = format!("{function_name}=function(a)");
             let ndx = body.find(function_start.as_str());
 
             if ndx.is_some() {
                 let sub_body = body.slice((ndx.unwrap() + function_start.len())..);
 
-                let mut function_body = format!(
-                    "var {function_start}{cut_after_sub_body};",
-                    function_start = function_start,
-                    cut_after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}")),
-                );
+                let end_of_the_function = r#"+a}return b.join("")}"#;
+                let end_index = sub_body.find(end_of_the_function);
+
+                // let cut_after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}"));
+                let cut_after_sub_body = if end_index.is_some() {
+                    sub_body.slice(0..(end_index.unwrap() + end_of_the_function.len()))
+                } else {
+                    "{}"
+                };
+
+                let mut function_body = format!("var {function_start}{cut_after_sub_body};",);
 
                 function_body.retain(|c| c != '\n');
 
@@ -1403,29 +1413,15 @@ pub fn between<'a>(haystack: &'a str, left: &'a str, right: &'a str) -> &'a str 
 }
 
 pub fn cut_after_js(mixed_json: &str) -> Option<String> {
-    let escaping_sequenzes = serde_json::json!([
-      { "start": '"', "end": '"' },
-      { "start": "'", "end": "'" },
-      { "start": "`", "end": "`" },
-      { "start": "/", "end": "/", "startPrefix": r"(^|[\[{:;,])\s?$"},
-    ]);
+    let (open, close) = match mixed_json.slice(0..=0) {
+        "[" => ("[", "]"),
+        "{" => ("{", "}"),
+        _ => {
+            return None;
+        }
+    };
 
-    let mut open = String::new();
-    let mut close = String::new();
-
-    if mixed_json.chars().nth(0).unwrap_or('\0') == '[' {
-        open = "[".to_string();
-        close = "]".to_string();
-    } else if mixed_json.chars().nth(0).unwrap_or('\0') == '{' {
-        open = "{".to_string();
-        close = "}".to_string();
-    }
-
-    if open.is_empty() {
-        return None;
-    }
-
-    let mut is_escaped_object: Option<&serde_json::Value> = None;
+    let mut is_escaped_object: Option<EscapeSequenze> = None;
 
     // States if the current character is treated as escaped or not
     let mut is_escaped = false;
@@ -1437,42 +1433,32 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
 
     for i in 0..mixed_json.len() {
         if !is_escaped
-            && is_escaped_object.is_some()
-            && mixed_json.chars().nth(i)
+            && is_escaped_object.as_ref().is_some()
+            && mixed_json.slice(i..=i)
                 == is_escaped_object
-                    .and_then(|x| x.get("end"))
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .chars()
-                    .nth(0)
+                    .as_ref()
+                    .and_then(|x| Some(x.end.as_str()))
+                    .unwrap_or("57")
         {
             is_escaped_object = None;
             continue;
         } else if !is_escaped && is_escaped_object.is_none() {
-            for escaped in escaping_sequenzes.as_array().unwrap() {
-                if mixed_json.chars().nth(i).unwrap_or('\0')
-                    != escaped
-                        .get("start")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .chars()
-                        .nth(0)
-                        .unwrap_or('1')
-                {
+            for escaped in ESCAPING_SEQUENZES.iter() {
+                if mixed_json.slice(i..=i) != escaped.start.as_str() {
                     continue;
                 }
 
-                if escaped.get("startPrefix").is_none() {
-                    is_escaped_object = Some(escaped);
+                if escaped.start_prefix.is_none() {
+                    is_escaped_object = Some(escaped.clone());
                     break;
                 }
 
-                let start_prefix_regex =
-                    Regex::new(escaped.get("startPrefix").and_then(|x| x.as_str()).unwrap())
-                        .unwrap();
+                let start_prefix_regex = escaped.start_prefix.as_ref().unwrap();
 
-                if start_prefix_regex.is_match(mixed_json.substring(i - 10, i)) {
-                    is_escaped_object = Some(escaped);
+                let substring_start_number = if i < 10 { 0usize } else { (i - 10) as usize };
+
+                if start_prefix_regex.is_match(mixed_json.substring(substring_start_number, i)) {
+                    is_escaped_object = Some(escaped.clone());
                     break;
                 }
             }
@@ -1481,16 +1467,16 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
             }
         }
 
-        is_escaped = mixed_json.chars().nth(i).unwrap_or('\0') == '\\' && !is_escaped;
+        is_escaped = mixed_json.slice(i..=i).chars().next() == Some('\\'); // && !is_escaped;
 
         if is_escaped_object.is_some() {
             continue;
         }
 
-        if mixed_json.chars().nth(i).unwrap_or('\0') == open.chars().nth(0).unwrap_or('1') {
-            counter = counter + 1;
-        } else if mixed_json.chars().nth(i).unwrap_or('\0') == close.chars().nth(0).unwrap_or('1') {
-            counter = counter - 1;
+        if mixed_json.slice(i..=i) == open {
+            counter += 1;
+        } else if mixed_json.slice(i..=i) == close {
+            counter -= 1;
         }
 
         if counter == 0 {

@@ -21,7 +21,7 @@ pub struct Video {
     video_id: String,
     options: VideoOptions,
     #[derivative(PartialEq = "ignore")]
-    client: reqwest::Client,
+    client: reqwest_middleware::ClientWithMiddleware,
 }
 
 impl Video {
@@ -35,6 +35,18 @@ impl Video {
         let client = reqwest::Client::builder()
             .build()
             .map_err(|op| VideoError::Reqwest(op))?;
+
+        let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
+            .retry_bounds(
+                std::time::Duration::from_millis(500),
+                std::time::Duration::from_millis(10000),
+            )
+            .build_with_max_retries(3);
+        let client = reqwest_middleware::ClientBuilder::new(client)
+            .with(reqwest_retry::RetryTransientMiddleware::new_with_policy(
+                retry_policy,
+            ))
+            .build();
 
         Ok(Self {
             video_id: id.unwrap(),
@@ -76,6 +88,18 @@ impl Video {
 
         let client = client.build().map_err(|op| VideoError::Reqwest(op))?;
 
+        let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
+            .retry_bounds(
+                std::time::Duration::from_millis(500),
+                std::time::Duration::from_millis(10000),
+            )
+            .build_with_max_retries(3);
+        let client = reqwest_middleware::ClientBuilder::new(client)
+            .with(reqwest_retry::RetryTransientMiddleware::new_with_policy(
+                retry_policy,
+            ))
+            .build();
+
         Ok(Self {
             video_id: id.unwrap(),
             options,
@@ -95,7 +119,7 @@ impl Video {
         let request = client.get(url_parsed.unwrap().as_str()).send().await;
 
         if request.is_err() {
-            return Err(VideoError::Reqwest(request.err().unwrap()));
+            return Err(VideoError::ReqwestMiddleware(request.err().unwrap()));
         }
 
         let response_first = request.unwrap().text().await;
@@ -175,7 +199,7 @@ impl Video {
             hls_manifest_url,
             formats: parse_video_formats(
                 &player_response,
-                get_functions(get_html5player(response.as_str()).unwrap(), &client).await,
+                get_functions(get_html5player(response.as_str()).unwrap(), &client).await?,
             )
             .unwrap_or(vec![]),
             related_videos: get_related_videos(&initial_response).unwrap_or(vec![]),
@@ -308,7 +332,7 @@ impl Video {
         };
 
         async fn get_next_chunk(
-            client: &reqwest::Client,
+            client: &reqwest_middleware::ClientWithMiddleware,
             link: &str,
             content_length: &u64,
             dl_chunk_size: &u64,
@@ -334,7 +358,7 @@ impl Video {
             let response = client.get(link).headers(headers).send().await;
 
             if response.is_err() {
-                return Err(VideoError::Reqwest(response.err().unwrap()));
+                return Err(VideoError::ReqwestMiddleware(response.err().unwrap()));
             }
 
             let mut response = response.expect("IMPOSSIBLE");
@@ -371,7 +395,7 @@ impl Video {
                 .get(&link)
                 .send()
                 .await
-                .map_err(|op| VideoError::Reqwest(op))?
+                .map_err(|op| VideoError::ReqwestMiddleware(op))?
                 .content_length();
 
             if content_length_response.is_none() {
@@ -417,7 +441,10 @@ impl Video {
     }
 }
 
-async fn get_dash_manifest(url: &str, client: &reqwest::Client) -> Vec<serde_json::Value> {
+async fn get_dash_manifest(
+    url: &str,
+    client: &reqwest_middleware::ClientWithMiddleware,
+) -> Vec<serde_json::Value> {
     let base_url = url::Url::parse(BASE_URL).expect("BASE_URL corrapt");
     let base_url_host = base_url.host_str().expect("BASE_URL host corrapt");
 
@@ -531,7 +558,10 @@ async fn get_dash_manifest(url: &str, client: &reqwest::Client) -> Vec<serde_jso
     return formats;
 }
 
-async fn get_m3u8(url: &str, client: &reqwest::Client) -> Vec<(String, String)> {
+async fn get_m3u8(
+    url: &str,
+    client: &reqwest_middleware::ClientWithMiddleware,
+) -> Vec<(String, String)> {
     let base_url = url::Url::parse(BASE_URL).expect("BASE_URL corrapt");
     let base_url_host = base_url.host_str().expect("BASE_URL host corrapt");
 
