@@ -17,7 +17,7 @@ pub struct VideoInfo {
 #[derive(Clone, PartialEq, Debug, derive_more::Display)]
 pub enum VideoSearchOptions {
     #[display(fmt = "Video & Audio")]
-    VideoAuido,
+    VideoAudio,
     #[display(fmt = "Video")]
     Video,
     #[display(fmt = "Audio")]
