@@ -794,6 +794,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "m3u8-rs"
+version = "5.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c3b9f971e885044cb57330d3c89a4f3bd45fe97d01c93b3dcec57096efacffc"
+dependencies = [
+ "chrono",
+ "nom",
+]
+
+[[package]]
 name = "mac"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1455,11 +1465,13 @@ dependencies = [
 
 [[package]]
 name = "rusty_ytdl"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "derivative",
  "derive_more",
  "js-sandbox",
+ "m3u8-rs",
+ "nom",
  "once_cell",
  "rand 0.8.5",
  "regex",

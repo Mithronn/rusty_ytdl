@@ -1,10 +1,9 @@
-use rusty_ytdl;
+use std::io::Write;
 
-#[tokio::test]
-async fn download_to_file() {
-    use rusty_ytdl::Video;
-    use std::io::Write;
+use rusty_ytdl::*;
 
+#[tokio::main]
+async fn main() {
     let url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc";
 
     let video = Video::new(url).unwrap();

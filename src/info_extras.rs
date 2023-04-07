@@ -300,7 +300,7 @@ pub fn parse_related_video(
                                                 }
                                             })
                                             .unwrap_or(0i64)
-                                            as i32,
+                                            as u64,
                                         height: x
                                             .get("height")
                                             .and_then(|x| {
@@ -316,7 +316,7 @@ pub fn parse_related_video(
                                                 }
                                             })
                                             .unwrap_or(0i64)
-                                            as i32,
+                                            as u64,
                                         url: x
                                             .get("url")
                                             .and_then(|x| x.as_str())
@@ -373,7 +373,7 @@ pub fn parse_related_video(
                                             x.as_i64()
                                         }
                                     })
-                                    .unwrap_or(0i64) as i32,
+                                    .unwrap_or(0i64) as u64,
                                 height: x
                                     .get("height")
                                     .and_then(|x| {
@@ -386,7 +386,7 @@ pub fn parse_related_video(
                                             x.as_i64()
                                         }
                                     })
-                                    .unwrap_or(0i64) as i32,
+                                    .unwrap_or(0i64) as u64,
                                 url: x
                                     .get("url")
                                     .and_then(|x| x.as_str())
@@ -712,7 +712,7 @@ pub fn get_author(
                         x.as_i64()
                     }
                 })
-                .unwrap_or(0i64) as i32,
+                .unwrap_or(0i64) as u64,
             height: x
                 .get("height")
                 .and_then(|x| {
@@ -725,7 +725,7 @@ pub fn get_author(
                         x.as_i64()
                     }
                 })
-                .unwrap_or(0i64) as i32,
+                .unwrap_or(0i64) as u64,
             url: x
                 .get("url")
                 .and_then(|x| x.as_str())

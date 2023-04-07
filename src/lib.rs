@@ -4,6 +4,7 @@
 
 mod info;
 mod info_extras;
+mod live_stream;
 mod structs;
 mod utils;
 
@@ -11,6 +12,9 @@ pub mod constants;
 
 #[cfg(feature = "blocking")]
 pub mod blocking;
+
+#[cfg(feature = "search")]
+pub mod search;
 
 pub use info::Video;
 pub use structs::{

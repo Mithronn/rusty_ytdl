@@ -1,5 +1,8 @@
 mod info;
 
+#[cfg(feature = "search")]
+pub mod search;
+
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 

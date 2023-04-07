@@ -264,13 +264,13 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
 pub fn filter_formats(formats: &mut Vec<VideoFormat>, options: &VideoSearchOptions) {
     match options {
         VideoSearchOptions::Audio => {
-            formats.retain(|x| !x.has_video && x.has_audio);
+            formats.retain(|x| (!x.has_video && x.has_audio) || x.is_live);
         }
         VideoSearchOptions::Video => {
-            formats.retain(|x| x.has_video && !x.has_audio);
+            formats.retain(|x| (x.has_video && !x.has_audio) || x.is_live);
         }
         _ => {
-            formats.retain(|x| x.has_video && x.has_audio);
+            formats.retain(|x| (x.has_video && x.has_audio) || x.is_live);
         }
     }
 }
@@ -1004,7 +1004,7 @@ pub fn clean_video_details(
                             x.as_i64()
                         }
                     })
-                    .unwrap_or(0i64) as i32,
+                    .unwrap_or(0i64) as u64,
                 height: x
                     .get("height")
                     .and_then(|x| {
@@ -1017,7 +1017,7 @@ pub fn clean_video_details(
                             x.as_i64()
                         }
                     })
-                    .unwrap_or(0i64) as i32,
+                    .unwrap_or(0i64) as u64,
                 url: x
                     .get("url")
                     .and_then(|x| x.as_str())

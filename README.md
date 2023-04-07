@@ -7,26 +7,30 @@
 
 </div>
 
-Youtube downloading module written with **pure Rust**.
+Youtube searching and downloading module written with **pure Rust**.
 Download videos **blazing-fast** without getting stuck on Youtube download speed (Downloads 20MB video files in just 10 seconds!)
 
 ## Overview
 
 - [Roadmap](#roadmap)
+- [Features](#features)
 - [Usage](#usage)
 - [Limitations](#limitations)
 
 ## Roadmap
 
-- [x] download normal videos
 - [ ] download live videos
-- [x] asynchronous API
-- [x] blocking API
-- [x] proxy options
-- [x] cookie options
 - [x] full video info deserialization
+- [ ] ffmpeg feature
 - [ ] CLI
 - [ ] benchmarks
+
+## Features
+
+- Download videos (only non-live videos for now)
+- Search with query (Video, Playlist, Channel)
+- Blocking and asynchronous API
+- Proxy, IPv6, and cookie support on request
 
 # Usage
 
@@ -139,5 +143,5 @@ Or add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rusty_ytdl = "0.4.2"
+rusty_ytdl = "0.5.0"
 ```

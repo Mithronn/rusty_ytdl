@@ -6,6 +6,7 @@ use xml_oxide::{sax::parser::Parser, sax::Event};
 
 use crate::constants::{BASE_URL, DEFAULT_HEADERS, FORMATS};
 use crate::info_extras::{get_media, get_related_videos};
+use crate::live_stream;
 use crate::structs::{VideoError, VideoFormat, VideoInfo, VideoOptions};
 
 use crate::utils::{
@@ -139,7 +140,7 @@ impl Video {
                 .map(|x| x.inner_html().replace("var ytInitialPlayerResponse =", ""))
                 .into_iter()
                 .nth(0)
-                .unwrap()
+                .unwrap_or(String::from(""))
                 .trim()
                 .to_string();
             let mut initial_response_string = document
@@ -148,7 +149,7 @@ impl Video {
                 .map(|x| x.inner_html().replace("var ytInitialData =", ""))
                 .into_iter()
                 .nth(0)
-                .unwrap()
+                .unwrap_or(String::from(""))
                 .trim()
                 .to_string();
 
@@ -249,57 +250,63 @@ impl Video {
         }
 
         if has_manifest && info.hls_manifest_url.is_some() {
-            let url = info.hls_manifest_url.as_ref().unwrap();
+            let url = info.hls_manifest_url.as_ref().expect("IMPOSSIBLE");
             let unformated_formats = get_m3u8(&url, &client).await;
 
-            let default_formats = FORMATS.as_object().expect("IMPOSSIBLE");
-            // Push formated infos to formats
-            for (itag, url) in unformated_formats {
-                let static_format = default_formats.get(&itag);
-                if static_format.is_none() {
-                    continue;
+            // Skip if error occured
+            if unformated_formats.is_ok() {
+                let unformated_formats = unformated_formats.expect("IMPOSSIBLE");
+
+                let default_formats = FORMATS.as_object().expect("IMPOSSIBLE");
+                // Push formated infos to formats
+                for (itag, url) in unformated_formats {
+                    let static_format = default_formats.get(&itag);
+                    if static_format.is_none() {
+                        continue;
+                    }
+                    let static_format = static_format.unwrap();
+
+                    let mut format = serde_json::json!({
+                        "itag": itag.parse::<i32>().unwrap_or(0),
+                        "mimeType": static_format.get("mimeType").expect("IMPOSSIBLE"),
+                    });
+
+                    let format_as_object_mut = format.as_object_mut().unwrap();
+
+                    if !static_format.get("qualityLabel").unwrap().is_null() {
+                        format_as_object_mut.insert(
+                            "qualityLabel".to_string(),
+                            static_format.get("qualityLabel").unwrap().clone(),
+                        );
+                    }
+
+                    if !static_format.get("bitrate").unwrap().is_null() {
+                        format_as_object_mut.insert(
+                            "bitrate".to_string(),
+                            static_format.get("bitrate").unwrap().clone(),
+                        );
+                    }
+
+                    if !static_format.get("audioBitrate").unwrap().is_null() {
+                        format_as_object_mut.insert(
+                            "audioBitrate".to_string(),
+                            static_format.get("audioBitrate").unwrap().clone(),
+                        );
+                    }
+
+                    // Insert stream url to format map
+                    format_as_object_mut.insert("url".to_string(), serde_json::Value::String(url));
+
+                    // Add other metadatas to format map
+                    add_format_meta(format_as_object_mut);
+
+                    let format: Result<VideoFormat, serde_json::Error> =
+                        serde_json::from_value(format);
+                    if format.is_err() {
+                        continue;
+                    }
+                    info.formats.push(format.unwrap());
                 }
-                let static_format = static_format.unwrap();
-
-                let mut format = serde_json::json!({
-                    "itag": itag.parse::<i32>().unwrap_or(0),
-                    "mimeType": static_format.get("mimeType").expect("IMPOSSIBLE"),
-                });
-
-                let format_as_object_mut = format.as_object_mut().unwrap();
-
-                if !static_format.get("qualityLabel").unwrap().is_null() {
-                    format_as_object_mut.insert(
-                        "qualityLabel".to_string(),
-                        static_format.get("qualityLabel").unwrap().clone(),
-                    );
-                }
-
-                if !static_format.get("bitrate").unwrap().is_null() {
-                    format_as_object_mut.insert(
-                        "bitrate".to_string(),
-                        static_format.get("bitrate").unwrap().clone(),
-                    );
-                }
-
-                if !static_format.get("audioBitrate").unwrap().is_null() {
-                    format_as_object_mut.insert(
-                        "audioBitrate".to_string(),
-                        static_format.get("audioBitrate").unwrap().clone(),
-                    );
-                }
-
-                // Insert stream url to format map
-                format_as_object_mut.insert("url".to_string(), serde_json::Value::String(url));
-
-                // Add other metadatas to format map
-                add_format_meta(format_as_object_mut);
-
-                let format: Result<VideoFormat, serde_json::Error> = serde_json::from_value(format);
-                if format.is_err() {
-                    continue;
-                }
-                info.formats.insert(info.formats.len(), format.unwrap());
             }
         }
 
@@ -315,18 +322,24 @@ impl Video {
         let format = choose_format(&info.formats, &self.options)
             .map_err(|_op| VideoError::VideoSourceNotFound)?;
 
-        // Only check for HLS formats
-        //
-        // Currently not supporting live streams
-        if format.is_hls {
-            return Ok(vec![]);
-        }
-
-        // Normal video
         let link = format.url;
 
         if link.is_empty() {
             return Err(VideoError::VideoSourceNotFound);
+        }
+
+        // Only check for HLS formats
+        //
+        // Currently not supporting live streams
+        if format.is_hls {
+            // let live_stream_p = live_stream::LiveStream::new(link, client.clone());
+            // let a = live_stream_p.parse().await;
+
+            // if a.is_err() {
+            //     return Err(a.err().unwrap());
+            // }
+
+            return Ok(vec![]);
         }
 
         let dl_chunk_size = if self.options.download_options.dl_chunk_size.is_some() {
@@ -448,7 +461,7 @@ impl Video {
 async fn get_dash_manifest(
     url: &str,
     client: &reqwest_middleware::ClientWithMiddleware,
-) -> Vec<serde_json::Value> {
+) -> Result<Vec<serde_json::Value>, VideoError> {
     let base_url = url::Url::parse(BASE_URL).expect("BASE_URL corrapt");
     let base_url_host = base_url.host_str().expect("BASE_URL host corrapt");
 
@@ -463,7 +476,19 @@ async fn get_dash_manifest(
         .and_then(|x| Ok(x.as_str().to_string()))
         .unwrap_or("".to_string());
 
-    let body = client.get(url).send().await.unwrap().text().await.unwrap();
+    let response = client.get(url).send().await;
+
+    if response.is_err() {
+        return Err(VideoError::ReqwestMiddleware(response.err().unwrap()));
+    }
+
+    let response = response.unwrap().text().await;
+
+    if response.is_err() {
+        return Err(VideoError::BodyCannotParsed);
+    }
+
+    let body = response.unwrap();
 
     let mut parser = Parser::from_reader(body.as_bytes());
 
@@ -559,13 +584,13 @@ async fn get_dash_manifest(
         }
     }
 
-    return formats;
+    return Ok(formats);
 }
 
 async fn get_m3u8(
     url: &str,
     client: &reqwest_middleware::ClientWithMiddleware,
-) -> Vec<(String, String)> {
+) -> Result<Vec<(String, String)>, VideoError> {
     let base_url = url::Url::parse(BASE_URL).expect("BASE_URL corrapt");
     let base_url_host = base_url.host_str().expect("BASE_URL host corrapt");
 
@@ -580,7 +605,19 @@ async fn get_m3u8(
         .and_then(|x| Ok(x.as_str().to_string()))
         .unwrap_or("".to_string());
 
-    let body = client.get(url).send().await.unwrap().text().await.unwrap();
+    let response = client.get(url).send().await;
+
+    if response.is_err() {
+        return Err(VideoError::ReqwestMiddleware(response.err().unwrap()));
+    }
+
+    let response = response.unwrap().text().await;
+
+    if response.is_err() {
+        return Err(VideoError::BodyCannotParsed);
+    }
+
+    let body = response.unwrap();
 
     let http_regex = regex::Regex::new(r"^https?://").unwrap();
     let itag_regex = regex::Regex::new(r"/itag/(\d+)/").unwrap();
@@ -603,5 +640,5 @@ async fn get_m3u8(
         })
         .collect();
 
-    itag_and_url
+    Ok(itag_and_url)
 }

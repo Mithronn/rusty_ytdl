@@ -17,7 +17,7 @@ pub struct VideoInfo {
 #[derive(Clone, PartialEq, Debug, derive_more::Display)]
 pub enum VideoSearchOptions {
     #[display(fmt = "Video & Audio")]
-    VideoAuido,
+    VideoAudio,
     #[display(fmt = "Video")]
     Video,
     #[display(fmt = "Audio")]
@@ -117,6 +117,12 @@ pub enum VideoError {
     InvalidIPv6Format,
     #[error("Invalid IPv6 subnet")]
     InvalidIPv6Subnet,
+    #[error("M3U8 Parse Error: {0}")]
+    M3U8ParseError(String),
+    #[error("{0} is not a playlist URL")]
+    IsNotPlaylist(String),
+    #[error("Playlist body cannot parsed")]
+    PlaylistBodyCannotParsed,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -309,8 +315,8 @@ pub struct StoryBoard {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Thumbnail {
-    pub width: i32,
-    pub height: i32,
+    pub width: u64,
+    pub height: u64,
     pub url: String,
 }
 
