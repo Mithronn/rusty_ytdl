@@ -13,6 +13,7 @@ use crate::structs::{
     VideoOptions, VideoQuality, VideoSearchOptions,
 };
 
+#[allow(dead_code)]
 pub fn get_cver(info: &serde_json::Value) -> &str {
     info.get("responseContext")
         .and_then(|x| x.get("serviceTrackingParams"))
@@ -1142,19 +1143,9 @@ pub async fn get_functions(
 
     let url = url.as_str();
 
-    let response = client.get(url).send().await;
+    let response = get_html(&client, url, None).await?;
 
-    if response.is_err() {
-        return Err(VideoError::ReqwestMiddleware(response.err().unwrap()));
-    }
-
-    let response = response.unwrap().text().await;
-
-    if response.is_err() {
-        return Err(VideoError::BodyCannotParsed);
-    }
-
-    Ok(extract_functions(response.unwrap()))
+    Ok(extract_functions(response))
 }
 
 pub fn extract_functions(body: String) -> Vec<(String, String)> {
@@ -1258,6 +1249,32 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
     functions
 }
 
+pub async fn get_html(
+    client: &reqwest_middleware::ClientWithMiddleware,
+    url: impl Into<String>,
+    headers: Option<&reqwest::header::HeaderMap>,
+) -> Result<String, VideoError> {
+    let request = if headers.is_some() {
+        client.get(url.into()).headers(headers.unwrap().clone())
+    } else {
+        client.get(url.into())
+    }
+    .send()
+    .await;
+
+    if request.is_err() {
+        return Err(VideoError::ReqwestMiddleware(request.err().unwrap()));
+    }
+
+    let response_first = request.unwrap().text().await;
+
+    if response_first.is_err() {
+        return Err(VideoError::BodyCannotParsed);
+    }
+
+    Ok(response_first.unwrap())
+}
+
 pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, VideoError> {
     let ipv6_format: String = ip.into();
 
@@ -1329,6 +1346,17 @@ pub fn normalize_ip(ip: impl Into<String>) -> Vec<u16> {
     }
 
     full_ip
+}
+
+pub fn make_absolute_url(base: &str, url: &str) -> Result<url::Url, VideoError> {
+    match url::Url::parse(url) {
+        Ok(u) => Ok(u),
+        Err(e) if e == url::ParseError::RelativeUrlWithoutBase => {
+            let base_url = url::Url::parse(base).map_err(|e| VideoError::URLParseError(e))?;
+            Ok(base_url.join(url)?)
+        }
+        Err(e) => Err(VideoError::URLParseError(e)),
+    }
 }
 
 pub fn time_to_ms(duration: &str) -> usize {

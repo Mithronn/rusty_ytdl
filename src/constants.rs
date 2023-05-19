@@ -61,7 +61,7 @@ pub(crate) const ESCAPING_SEQUENZES: Lazy<[EscapeSequenze; 4]> = Lazy::new(|| {
         EscapeSequenze {
             start: "/".to_string(),
             end: "/".to_string(),
-            start_prefix: Some(regex::Regex::new(r#"(^|[\[{:;,])\s?$"#).expect("IMPOSSIBLE")),
+            start_prefix: Some(regex::Regex::new(r#"(^|[\[{:;,/])\s?$"#).expect("IMPOSSIBLE")),
         },
     ]
 });

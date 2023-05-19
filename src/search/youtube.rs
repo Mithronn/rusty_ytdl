@@ -9,7 +9,7 @@ use urlencoding::encode;
 use crate::{
     constants::DEFAULT_HEADERS,
     structs::VideoError,
-    utils::{get_random_v6_ip, time_to_ms},
+    utils::{get_html, get_random_v6_ip, time_to_ms},
     Thumbnail,
 };
 
@@ -17,6 +17,7 @@ pub use crate::structs::RequestOptions;
 
 const DEFAULT_INNERTUBE_KEY: &'static str = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const DEFAULT_CLIENT_VERSOIN: &'static str = "2.20230331.00.00";
+const SAFE_SEARCH_COOKIE: &'static str = "PREF=f2=8000000";
 
 const PLAYLIST_ID: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(PL|FL|UU|LL|RD|OL)[a-zA-Z0-9-_]{16,41}").unwrap());
@@ -35,6 +36,7 @@ pub struct YouTube {
 }
 
 impl YouTube {
+    /// Create new YouTube search struct with default [`RequestOptions`]
     pub fn new() -> Result<Self, VideoError> {
         let client = reqwest::Client::builder()
             .build()
@@ -48,10 +50,11 @@ impl YouTube {
         })
     }
 
+    /// Create new YouTube search struct with custom [`RequestOptions`]
     pub fn new_with_options(request_options: &RequestOptions) -> Result<Self, VideoError> {
-        // Assign request options to client
         let mut client = reqwest::Client::builder();
 
+        // Assign request options to client
         if request_options.proxy.is_some() {
             let proxy = request_options.proxy.as_ref().unwrap().clone();
             client = client.proxy(proxy);
@@ -83,850 +86,7 @@ impl YouTube {
         })
     }
 
-    async fn innertube_key(&self) -> String {
-        let innertube_cache = self.innertube_cache.borrow();
-        if innertube_cache.is_some() {
-            return innertube_cache.as_ref().unwrap().to_string();
-        }
-
-        drop(innertube_cache);
-
-        return self.fetch_inner_tube_key().await;
-    }
-
-    async fn fetch_inner_tube_key(&self) -> String {
-        let response = self.get_html("https://www.youtube.com?hl=en", None).await;
-
-        if response.is_err() {
-            return DEFAULT_INNERTUBE_KEY.to_string();
-        }
-
-        let response = response.unwrap();
-
-        let result = get_api_key(&response);
-
-        *self.innertube_cache.borrow_mut() = Some(result.clone());
-        return result;
-    }
-
-    async fn get_html(
-        &self,
-        url: impl Into<String>,
-        _search_options: Option<&SearchOptions>,
-    ) -> Result<String, VideoError> {
-        let request = self
-            .client
-            .get(url.into())
-            .headers(DEFAULT_HEADERS.clone())
-            .send()
-            .await;
-
-        if request.is_err() {
-            return Err(VideoError::ReqwestMiddleware(request.err().unwrap()));
-        }
-
-        let response_first = request.unwrap().text().await;
-
-        if response_first.is_err() {
-            return Err(VideoError::BodyCannotParsed);
-        }
-
-        Ok(response_first.unwrap())
-    }
-
-    async fn make_request(
-        &self,
-        url: impl Into<String>,
-        _search_options: Option<&SearchOptions>,
-        request_options: &RequestFuncOptions,
-    ) -> serde_json::Value {
-        let key = self.innertube_key().await;
-        let url: String = url.into();
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            reqwest::header::HeaderValue::from_str("application/json").unwrap(),
-        );
-        headers.insert(
-            reqwest::header::HOST,
-            reqwest::header::HeaderValue::from_str("www.youtube.com").unwrap(),
-        );
-        headers.insert(
-            reqwest::header::REFERER,
-            reqwest::header::HeaderValue::from_str("https://www.youtube.com").unwrap(),
-        );
-
-        let original_url = &request_options.original_url;
-        let query = &request_options.query;
-        let filter = if request_options.filter.is_some() {
-            format!(
-                r#""params": "{}","#,
-                request_options.filter.as_ref().unwrap()
-            )
-        } else {
-            "".to_string()
-        };
-
-        let format_str = format!(
-            r#"{{
-                "query": "{query}",
-                {filter}
-                "context": {{
-                    "client": {{
-                        "utcOffsetMinutes": 0,
-                        "gl": "US",
-                        "hl": "en",
-                        "clientName": "WEB",
-                        "clientVersion": "1.20220406.00.00",
-                        "originalUrl": "{original_url}"
-                    }}
-                }}
-            }}
-            "#
-        );
-
-        let body: serde_json::Value = serde_json::from_str(&format_str).unwrap();
-
-        let res = self
-            .client
-            .post(format!("https://youtube.com/youtubei/v1${url}?key=${key}"))
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await;
-
-        if res.is_err() {
-            return serde_json::Value::Null;
-        }
-
-        let res = res.unwrap().json::<serde_json::Value>().await;
-
-        if res.is_err() {
-            return serde_json::Value::Null;
-        }
-
-        return res.unwrap();
-    }
-
-    fn parse_search_result(
-        &self,
-        html: impl Into<String>,
-        options: &SearchOptions,
-    ) -> Vec<SearchResult> {
-        let mut html: String = html.into();
-
-        html = {
-            let document = Html::parse_document(&html);
-            let scripts_selector = Selector::parse("script").unwrap();
-            let mut initial_response_string = document
-                .select(&scripts_selector)
-                .filter(|x| x.inner_html().contains("var ytInitialData ="))
-                .map(|x| x.inner_html().replace("var ytInitialData =", ""))
-                .into_iter()
-                .nth(0)
-                .unwrap_or(String::from(""))
-                .trim()
-                .to_string();
-
-            initial_response_string.pop();
-
-            initial_response_string
-        };
-
-        // check if html is not empty
-        if !html.is_empty() {
-            let serde_value = serde_json::from_str::<serde_json::Value>(&html).unwrap();
-            let contents = &serde_value["contents"]["twoColumnSearchResultsRenderer"]
-                ["primaryContents"]["sectionListRenderer"]["contents"][0]["itemSectionRenderer"]
-                ["contents"];
-
-            // if contents found try to format values
-            if !contents.is_null() {
-                return self.format_search_result(contents, &options);
-            }
-        }
-
-        // if cannot fetch initial data return empty array
-        vec![]
-    }
-
-    fn format_search_result(
-        &self,
-        value: &serde_json::Value,
-        options: &SearchOptions,
-    ) -> Vec<SearchResult> {
-        let mut res: Vec<SearchResult> = vec![];
-        let only_numbers_regex = Regex::new(r"[^0-9]").unwrap();
-        // Not array we dont care
-        if value.is_array() {
-            let details = value.as_array().unwrap();
-
-            for data in details {
-                // if limit reached break to loop
-                if options.limit > 0 && res.len() >= (options.limit) as usize {
-                    break;
-                }
-
-                let match_statemant = if options.search_type == SearchType::All {
-                    if data
-                        .as_object()
-                        .and_then(|x| Some(x.contains_key("videoRenderer")))
-                        .unwrap_or(false)
-                    {
-                        &SearchType::Video
-                    } else if data
-                        .as_object()
-                        .and_then(|x| Some(x.contains_key("channelRenderer")))
-                        .unwrap_or(false)
-                    {
-                        &SearchType::Channel
-                    } else if data
-                        .as_object()
-                        .and_then(|x| Some(x.contains_key("playlistRenderer")))
-                        .unwrap_or(false)
-                    {
-                        &SearchType::Playlist
-                    } else {
-                        &SearchType::All
-                    }
-                } else {
-                    &options.search_type
-                };
-
-                match match_statemant {
-                    SearchType::Video | SearchType::Film => {
-                        // cannot resolve continue
-                        if data.is_null() || data["videoRenderer"].is_null() {
-                            continue;
-                        }
-
-                        let badge = if !data["videoRenderer"]["ownerBadges"].is_array() {
-                            &data["videoRenderer"]["ownerBadges"]
-                        } else {
-                            &data["videoRenderer"]["ownerBadges"][0]
-                        };
-
-                        let video = Video {
-                            id: data["videoRenderer"]["videoId"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string(),
-                            url: format!(
-                                "https://www.youtube.com/watch?v={}",
-                                data["videoRenderer"]["videoId"].as_str().unwrap_or("")
-                            ),
-                            title: data["videoRenderer"]["title"]["runs"][0]["text"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string(),
-                            description: if !data["videoRenderer"]["descriptionSnippet"]["runs"]
-                                .is_null()
-                            {
-                                data["videoRenderer"]["descriptionSnippet"]["runs"]
-                                    .as_array()
-                                    .and_then(|x| {
-                                        Some(
-                                            x.iter()
-                                                .map(|c| c["text"].as_str().unwrap_or(""))
-                                                .collect::<Vec<&str>>()
-                                                .join(""),
-                                        )
-                                    })
-                                    .unwrap_or("".to_string())
-                            } else if !data["videoRenderer"]["detailedMetadataSnippets"][0]
-                                ["snippetText"]["runs"]
-                                .is_null()
-                            {
-                                data["videoRenderer"]["detailedMetadataSnippets"][0]["snippetText"]
-                                    ["runs"]
-                                    .as_array()
-                                    .and_then(|x| {
-                                        Some(
-                                            x.iter()
-                                                .map(|c| c["text"].as_str().unwrap_or(""))
-                                                .collect::<Vec<&str>>()
-                                                .join(""),
-                                        )
-                                    })
-                                    .unwrap_or("".to_string())
-                            } else {
-                                String::from("")
-                            },
-                            duration: if !data["videoRenderer"]["lengthText"].is_null() {
-                                time_to_ms(
-                                    data["videoRenderer"]["lengthText"]["simpleText"]
-                                        .as_str()
-                                        .unwrap_or("0:00"),
-                                ) as u64
-                            } else {
-                                0u64
-                            },
-                            duration_raw: if !data["videoRenderer"]["lengthText"]["simpleText"]
-                                .is_null()
-                            {
-                                data["videoRenderer"]["lengthText"]["simpleText"]
-                                    .as_str()
-                                    .unwrap_or("0:00")
-                                    .to_string()
-                            } else {
-                                String::from("0:00")
-                            },
-                            thumbnails: if data["videoRenderer"]["thumbnail"]["thumbnails"]
-                                .is_array()
-                            {
-                                data["videoRenderer"]["thumbnail"]["thumbnails"]
-                                    .as_array()
-                                    .unwrap()
-                                    .iter()
-                                    .map(|x| Thumbnail {
-                                        width: x
-                                            .get("width")
-                                            .and_then(|x| {
-                                                if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
-                                                    })
-                                                } else {
-                                                    x.as_i64()
-                                                }
-                                            })
-                                            .unwrap_or(0i64)
-                                            as u64,
-                                        height: x
-                                            .get("height")
-                                            .and_then(|x| {
-                                                if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
-                                                    })
-                                                } else {
-                                                    x.as_i64()
-                                                }
-                                            })
-                                            .unwrap_or(0i64)
-                                            as u64,
-                                        url: x
-                                            .get("url")
-                                            .and_then(|x| x.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                    })
-                                    .collect::<Vec<Thumbnail>>()
-                            } else {
-                                vec![]
-                            },
-                            channel: Channel {
-                                id: data["videoRenderer"]["ownerText"]["runs"][0]
-                                    ["navigationEndpoint"]["browseEndpoint"]["browseId"]
-                                    .as_str()
-                                    .unwrap_or("")
-                                    .to_string(),
-                                name: data["videoRenderer"]["ownerText"]["runs"][0]["text"]
-                                    .as_str()
-                                    .unwrap_or("")
-                                    .to_string(),
-                                url: if !data["videoRenderer"]["ownerText"]["runs"][0]
-                                    ["navigationEndpoint"]["browseEndpoint"]["canonicalBaseUrl"]
-                                    .is_null()
-                                {
-                                    format!(
-                                        "https://www.youtube.com{}",
-                                        data["videoRenderer"]["ownerText"]["runs"][0]
-                                            ["navigationEndpoint"]["browseEndpoint"]
-                                            ["canonicalBaseUrl"]
-                                            .as_str()
-                                            .unwrap_or("")
-                                    )
-                                } else if !data["videoRenderer"]["ownerText"]["runs"][0]
-                                    ["navigationEndpoint"]["commandMetadata"]["webCommandMetadata"]
-                                    ["url"]
-                                    .is_null()
-                                {
-                                    format!(
-                                        "https://www.youtube.com{}",
-                                        data["videoRenderer"]["ownerText"]["runs"][0]
-                                            ["navigationEndpoint"]["commandMetadata"]
-                                            ["webCommandMetadata"]["url"]
-                                            .as_str()
-                                            .unwrap_or("")
-                                    )
-                                } else {
-                                    String::from("")
-                                },
-                                icon: if data["videoRenderer"]["channelThumbnail"]["thumbnails"]
-                                    .is_array()
-                                {
-                                    data["videoRenderer"]["channelThumbnail"]["thumbnails"]
-                                        .as_array()
-                                        .unwrap()
-                                        .iter()
-                                        .map(|x| Thumbnail {
-                                            width: x
-                                                .get("width")
-                                                .and_then(|x| {
-                                                    if x.is_string() {
-                                                        x.as_str().and_then(|x| {
-                                                            match x.parse::<i64>() {
-                                                                Ok(a) => Some(a),
-                                                                Err(_err) => Some(0i64),
-                                                            }
-                                                        })
-                                                    } else {
-                                                        x.as_i64()
-                                                    }
-                                                })
-                                                .unwrap_or(0i64)
-                                                as u64,
-                                            height: x
-                                                .get("height")
-                                                .and_then(|x| {
-                                                    if x.is_string() {
-                                                        x.as_str().and_then(|x| {
-                                                            match x.parse::<i64>() {
-                                                                Ok(a) => Some(a),
-                                                                Err(_err) => Some(0i64),
-                                                            }
-                                                        })
-                                                    } else {
-                                                        x.as_i64()
-                                                    }
-                                                })
-                                                .unwrap_or(0i64)
-                                                as u64,
-                                            url: x
-                                                .get("url")
-                                                .and_then(|x| x.as_str())
-                                                .unwrap_or("")
-                                                .to_string(),
-                                        })
-                                        .collect::<Vec<Thumbnail>>()
-                                } else if data["videoRenderer"]
-                                    ["channelThumbnailSupportedRenderers"]
-                                    ["channelThumbnailWithLinkRenderer"]["thumbnail"]["thumbnails"]
-                                    .is_array()
-                                {
-                                    data["videoRenderer"]["channelThumbnailSupportedRenderers"]
-                                        ["channelThumbnailWithLinkRenderer"]["thumbnail"]
-                                        ["thumbnails"]
-                                        .as_array()
-                                        .unwrap()
-                                        .iter()
-                                        .map(|x| Thumbnail {
-                                            width: x
-                                                .get("width")
-                                                .and_then(|x| {
-                                                    if x.is_string() {
-                                                        x.as_str().and_then(|x| {
-                                                            match x.parse::<i64>() {
-                                                                Ok(a) => Some(a),
-                                                                Err(_err) => Some(0i64),
-                                                            }
-                                                        })
-                                                    } else {
-                                                        x.as_i64()
-                                                    }
-                                                })
-                                                .unwrap_or(0i64)
-                                                as u64,
-                                            height: x
-                                                .get("height")
-                                                .and_then(|x| {
-                                                    if x.is_string() {
-                                                        x.as_str().and_then(|x| {
-                                                            match x.parse::<i64>() {
-                                                                Ok(a) => Some(a),
-                                                                Err(_err) => Some(0i64),
-                                                            }
-                                                        })
-                                                    } else {
-                                                        x.as_i64()
-                                                    }
-                                                })
-                                                .unwrap_or(0i64)
-                                                as u64,
-                                            url: x
-                                                .get("url")
-                                                .and_then(|x| x.as_str())
-                                                .unwrap_or("")
-                                                .to_string(),
-                                        })
-                                        .collect::<Vec<Thumbnail>>()
-                                } else {
-                                    vec![]
-                                },
-                                verified: if badge["metadataBadgeRenderer"]["style"].is_string() {
-                                    badge["metadataBadgeRenderer"]["style"]
-                                        .as_str()
-                                        .unwrap_or("")
-                                        .to_lowercase()
-                                        .contains("verified")
-                                } else {
-                                    false
-                                },
-                                subscribers: 0,
-                            },
-                            uploaded_at: if data["videoRenderer"]["publishedTimeText"]["simpleText"]
-                                .is_string()
-                            {
-                                Some(
-                                    data["videoRenderer"]["publishedTimeText"]["simpleText"]
-                                        .as_str()
-                                        .unwrap_or("")
-                                        .to_string(),
-                                )
-                            } else {
-                                None
-                            },
-                            views: if data["videoRenderer"]["viewCountText"]["simpleText"]
-                                .is_string()
-                            {
-                                let view_count = only_numbers_regex.replace_all(
-                                    data["videoRenderer"]["viewCountText"]["simpleText"]
-                                        .as_str()
-                                        .unwrap_or("0"),
-                                    "",
-                                );
-
-                                view_count.parse::<u64>().unwrap_or(0)
-                            } else {
-                                0u64
-                            },
-                        };
-
-                        res.push(SearchResult::Video(video));
-                    }
-                    SearchType::Channel => {
-                        // cannot resolve continue
-                        if data.is_null() || data["channelRenderer"].is_null() {
-                            continue;
-                        }
-
-                        let badges = &data["channelRenderer"]["ownerBadges"];
-
-                        let channel = Channel {
-                            id: data["channelRenderer"]["channelId"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string(),
-                            name: data["channelRenderer"]["title"]["simpleText"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string(),
-                            url: if !data["channelRenderer"]["navigationEndpoint"]["browseEndpoint"]
-                                ["canonicalBaseUrl"]
-                                .is_null()
-                            {
-                                format!(
-                                    "https://www.youtube.com{}",
-                                    data["channelRenderer"]["navigationEndpoint"]["browseEndpoint"]
-                                        ["canonicalBaseUrl"]
-                                        .as_str()
-                                        .unwrap_or("")
-                                )
-                            } else if !data["channelRenderer"]["navigationEndpoint"]
-                                ["commandMetadata"]["webCommandMetadata"]["url"]
-                                .is_null()
-                            {
-                                format!(
-                                    "https://www.youtube.com{}",
-                                    data["channelRenderer"]["navigationEndpoint"]
-                                        ["commandMetadata"]["webCommandMetadata"]["url"]
-                                        .as_str()
-                                        .unwrap_or("")
-                                )
-                            } else {
-                                String::from("")
-                            },
-                            icon: if data["channelRenderer"]["thumbnail"]["thumbnails"].is_array() {
-                                data["channelRenderer"]["thumbnail"]["thumbnails"]
-                                    .as_array()
-                                    .unwrap()
-                                    .iter()
-                                    .map(|x| Thumbnail {
-                                        width: x
-                                            .get("width")
-                                            .and_then(|x| {
-                                                if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
-                                                    })
-                                                } else {
-                                                    x.as_i64()
-                                                }
-                                            })
-                                            .unwrap_or(0i64)
-                                            as u64,
-                                        height: x
-                                            .get("height")
-                                            .and_then(|x| {
-                                                if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
-                                                    })
-                                                } else {
-                                                    x.as_i64()
-                                                }
-                                            })
-                                            .unwrap_or(0i64)
-                                            as u64,
-                                        url: x
-                                            .get("url")
-                                            .and_then(|x| x.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                    })
-                                    .collect::<Vec<Thumbnail>>()
-                            } else {
-                                vec![]
-                            },
-                            verified: if badges.is_array() {
-                                badges.as_array().unwrap().iter().any(|badge| {
-                                    !badge["verifiedBadge"].is_null()
-                                        || badge["metadataBadgeRenderer"]["style"]
-                                            .as_str()
-                                            .unwrap_or("")
-                                            .to_lowercase()
-                                            .contains("verified")
-                                })
-                            } else {
-                                false
-                            },
-                            subscribers: if !data["channelRenderer"]["subscriberCountText"]
-                                ["simpleText"]
-                                .is_null()
-                            {
-                                let sub_count = only_numbers_regex.replace_all(
-                                    data["channelRenderer"]["subscriberCountText"]["simpleText"]
-                                        .as_str()
-                                        .unwrap_or("0"),
-                                    "",
-                                );
-
-                                sub_count.parse::<u64>().unwrap_or(0)
-                            } else {
-                                0
-                            },
-                        };
-
-                        res.push(SearchResult::Channel(channel));
-                    }
-                    SearchType::Playlist => {
-                        // cannot resolve continue
-                        if data.is_null() || data["playlistRenderer"].is_null() {
-                            continue;
-                        }
-
-                        let playlist = Playlist {
-                            id: data["playlistRenderer"]["playlistId"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string(),
-                            name: data["playlistRenderer"]["title"]["simpleText"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string(),
-                            url: if data["playlistRenderer"]["playlistId"].is_string() {
-                                format!(
-                                    "https://www.youtube.com/playlist?list={}",
-                                    data["playlistRenderer"]["playlistId"]
-                                        .as_str()
-                                        .unwrap_or("")
-                                )
-                            } else {
-                                String::from("")
-                            },
-                            channel: Channel {
-                                id: data["playlistRenderer"]["shortBylineText"]["runs"][0]
-                                    ["navigationEndpoint"]["browseEndpoint"]["browseId"]
-                                    .as_str()
-                                    .unwrap_or("")
-                                    .to_string(),
-                                name: data["playlistRenderer"]["shortBylineText"]["runs"][0]
-                                    ["text"]
-                                    .as_str()
-                                    .unwrap_or("")
-                                    .to_string(),
-                                url: if data["playlistRenderer"]["shortBylineText"]["runs"][0]
-                                    ["navigationEndpoint"]["browseEndpoint"]["canonicalBaseUrl"]
-                                    .is_string()
-                                {
-                                    format!(
-                                        "https://www.youtube.com{}",
-                                        data["playlistRenderer"]["shortBylineText"]["runs"][0]
-                                            ["navigationEndpoint"]["browseEndpoint"]
-                                            ["canonicalBaseUrl"]
-                                            .as_str()
-                                            .unwrap_or("")
-                                    )
-                                } else if data["playlistRenderer"]["shortBylineText"]["runs"][0]
-                                    ["navigationEndpoint"]["commandMetadata"]["webCommandMetadata"]
-                                    ["url"]
-                                    .is_string()
-                                {
-                                    format!(
-                                        "https://www.youtube.com{}",
-                                        data["playlistRenderer"]["shortBylineText"]["runs"][0]
-                                            ["navigationEndpoint"]["commandMetadata"]
-                                            ["webCommandMetadata"]["url"]
-                                            .as_str()
-                                            .unwrap_or("")
-                                    )
-                                } else {
-                                    String::from("")
-                                },
-                                icon: vec![],
-                                verified: if data["playlistRenderer"]["ownerBadges"].is_array() {
-                                    data["playlistRenderer"]["ownerBadges"]
-                                        .as_array()
-                                        .unwrap()
-                                        .iter()
-                                        .any(|badge| {
-                                            !badge["verifiedBadge"].is_null()
-                                                || badge["metadataBadgeRenderer"]["style"]
-                                                    .as_str()
-                                                    .unwrap_or("")
-                                                    .to_lowercase()
-                                                    .contains("verified")
-                                        })
-                                } else {
-                                    false
-                                },
-                                subscribers: 0,
-                            },
-                            thumbnails: if data["playlistRenderer"]["thumbnails"][0]["thumbnails"]
-                                .is_array()
-                            {
-                                data["playlistRenderer"]["thumbnails"][0]["thumbnails"]
-                                    .as_array()
-                                    .unwrap()
-                                    .iter()
-                                    .map(|x| Thumbnail {
-                                        width: x
-                                            .get("width")
-                                            .and_then(|x| {
-                                                if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
-                                                    })
-                                                } else {
-                                                    x.as_i64()
-                                                }
-                                            })
-                                            .unwrap_or(0i64)
-                                            as u64,
-                                        height: x
-                                            .get("height")
-                                            .and_then(|x| {
-                                                if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
-                                                    })
-                                                } else {
-                                                    x.as_i64()
-                                                }
-                                            })
-                                            .unwrap_or(0i64)
-                                            as u64,
-                                        url: x
-                                            .get("url")
-                                            .and_then(|x| x.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                    })
-                                    .collect::<Vec<Thumbnail>>()
-                            } else if data["playlistRenderer"]["thumbnailRenderer"]
-                                ["playlistVideoThumbnailRenderer"]["thumbnail"]["thumbnails"]
-                                .is_array()
-                            {
-                                data["playlistRenderer"]["thumbnailRenderer"]
-                                    ["playlistVideoThumbnailRenderer"]["thumbnail"]["thumbnails"]
-                                    .as_array()
-                                    .unwrap()
-                                    .iter()
-                                    .map(|x| Thumbnail {
-                                        width: x
-                                            .get("width")
-                                            .and_then(|x| {
-                                                if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
-                                                    })
-                                                } else {
-                                                    x.as_i64()
-                                                }
-                                            })
-                                            .unwrap_or(0i64)
-                                            as u64,
-                                        height: x
-                                            .get("height")
-                                            .and_then(|x| {
-                                                if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
-                                                    })
-                                                } else {
-                                                    x.as_i64()
-                                                }
-                                            })
-                                            .unwrap_or(0i64)
-                                            as u64,
-                                        url: x
-                                            .get("url")
-                                            .and_then(|x| x.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                    })
-                                    .collect::<Vec<Thumbnail>>()
-                            } else {
-                                vec![]
-                            },
-                            // we cannot get videos, views and last_update from search we need to send request to playlist url
-                            views: 0,
-                            videos: vec![],
-                            last_update: None,
-                            // continuation not available in search
-                            continuation: None,
-                            client: self.client.clone(),
-                        };
-
-                        res.push(SearchResult::Playlist(playlist));
-                    }
-                    // Not proper type! skip it
-                    _ => continue,
-                }
-            }
-        }
-
-        // return results array
-        res
-    }
-
-    /// Search with spesific `query`. If nothing found, its return empty array
+    /// Search with spesific `query`. If nothing found, its return empty [`Vec<SearchResult>`]
     pub async fn search(
         &self,
         query: impl Into<String>,
@@ -934,6 +94,7 @@ impl YouTube {
     ) -> Result<Vec<SearchResult>, VideoError> {
         let options: &SearchOptions;
         let default_options = SearchOptions::default();
+
         // if SearchOptions is None get default
         if search_options.is_none() {
             options = &default_options;
@@ -942,31 +103,30 @@ impl YouTube {
             drop(default_options);
         }
 
-        // if search_options safe_search is true assign safe search cookie to reqwest request
-        // TODO
-
         let query: String = query.into();
         let filter = filter_string(&options.search_type);
         let query_regex = Regex::new(r"%20").unwrap();
+
         // First try with youtube backend
-        let res = self
-            .make_request(
-                "/search",
-                search_options,
-                &RequestFuncOptions {
-                    query: query.clone(),
-                    filter: if !filter.trim().is_empty() {
-                        Some(filter.clone())
-                    } else {
-                        None
-                    },
-                    original_url: format!(
-                        "https://youtube.com/results?search_query={encoded_query}{filter}",
-                        encoded_query = query_regex.replace(&encode(query.trim()), "+")
-                    ),
+        let res = make_request(
+            &self.client,
+            self.innertube_key().await,
+            "/search",
+            &options,
+            &RequestFuncOptions {
+                query: query.clone(),
+                filter: if !filter.trim().is_empty() {
+                    Some(filter.clone())
+                } else {
+                    None
                 },
-            )
-            .await;
+                original_url: format!(
+                    "https://youtube.com/results?search_query={encoded_query}{filter}",
+                    encoded_query = query_regex.replace(&encode(query.trim()), "+")
+                ),
+            },
+        )
+        .await;
 
         // make_request success
         if !res.is_null()
@@ -974,7 +134,8 @@ impl YouTube {
                 ["sectionListRenderer"]["contents"][0]["itemSectionRenderer"]["contents"]
                 .is_null()
         {
-            return Ok(self.format_search_result(
+            return Ok(format_search_result(
+                &self.client,
                 &res["contents"]["twoColumnSearchResultsRenderer"]["primaryContents"]
                     ["sectionListRenderer"]["contents"][0]["itemSectionRenderer"]["contents"],
                 &options,
@@ -992,12 +153,23 @@ impl YouTube {
             "https://youtube.com/results?search_query={encoded_query}&hl=en{filter}",
             encoded_query = query_regex.replace(&encode(query.trim()), "+")
         );
-        let body = self.get_html(url, search_options).await?;
 
-        Ok(self.parse_search_result(body, &options))
+        let mut headers = DEFAULT_HEADERS.clone();
+
+        // if search_options.safe_search is true assign safe search cookie to reqwest request
+        if options.safe_search {
+            headers.insert(
+                reqwest::header::COOKIE,
+                reqwest::header::HeaderValue::from_str(SAFE_SEARCH_COOKIE).unwrap(),
+            );
+        }
+
+        let body = get_html(&self.client, url, Some(&headers)).await?;
+
+        Ok(parse_search_result(&self.client, body, &options))
     }
 
-    /// Classic search function but only get first `SearchResult` item. `SearchOptions.limit` not use in request its will be always `1`
+    /// Classic search function but only get first [`SearchResult`] item. `SearchOptions.limit` not use in request its will be always `1`
     pub async fn search_one(
         &self,
         query: impl Into<String>,
@@ -1022,6 +194,37 @@ impl YouTube {
         }
 
         Ok(res.unwrap().get(0).cloned())
+    }
+
+    async fn innertube_key(&self) -> String {
+        let innertube_cache = self.innertube_cache.borrow();
+        if innertube_cache.is_some() {
+            return innertube_cache.as_ref().unwrap().to_string();
+        }
+
+        drop(innertube_cache);
+
+        return self.fetch_inner_tube_key().await;
+    }
+
+    async fn fetch_inner_tube_key(&self) -> String {
+        let response = get_html(
+            &self.client,
+            "https://www.youtube.com?hl=en",
+            Some(&DEFAULT_HEADERS.clone()),
+        )
+        .await;
+
+        if response.is_err() {
+            return DEFAULT_INNERTUBE_KEY.to_string();
+        }
+
+        let response = response.unwrap();
+
+        let result = get_api_key(&response);
+
+        *self.innertube_cache.borrow_mut() = Some(result.clone());
+        return result;
     }
 }
 
@@ -1049,7 +252,6 @@ impl Default for SearchOptions {
         Self {
             limit: 100,
             search_type: SearchType::Video,
-            // request_options: None,
             safe_search: false,
         }
     }
@@ -1101,10 +303,10 @@ pub struct Video {
 }
 
 impl Video {
-    /// Get video embed url
-    /// - if [`Video`] id is empty or corrupted return [`None`]
+    /// Get video embed url with [`EmbedOptions`]
+    /// - if [`Video`] id is empty or corrupted, this function return [`None`]
     pub fn get_embed_html(&self, options: Option<&EmbedOptions>) -> Option<String> {
-        if self.id.is_empty() {
+        if self.id.trim().is_empty() {
             return None;
         }
 
@@ -1159,8 +361,9 @@ impl Video {
         ));
     }
 
+    /// Get YouTube embed URL. If [`Video`] id is empty, this function return [`None`]
     pub fn get_embed_url(&self) -> Option<String> {
-        if self.id.is_empty() {
+        if self.id.trim().is_empty() {
             return None;
         }
 
@@ -1304,19 +507,12 @@ impl Playlist {
         let client = client.build().map_err(|op| VideoError::Reqwest(op))?;
         let client = reqwest_middleware::ClientBuilder::new(client).build();
 
-        let request = client.get(format!("{url}&hl=en")).send().await;
-
-        if request.is_err() {
-            return Err(VideoError::ReqwestMiddleware(request.err().unwrap()));
-        }
-
-        let response_first = request.unwrap().text().await;
-
-        if response_first.is_err() {
-            return Err(VideoError::BodyCannotParsed);
-        }
-
-        let html_first = response_first.unwrap();
+        let html_first = get_html(
+            &client,
+            format!("{url}&hl=en"),
+            Some(&DEFAULT_HEADERS.clone()),
+        )
+        .await?;
 
         // Get playlist datas
         let html = {
@@ -2125,4 +1321,781 @@ fn get_api_key(html: impl Into<String>) -> String {
             }
         }
     };
+}
+
+async fn make_request(
+    client: &reqwest_middleware::ClientWithMiddleware,
+    key: impl Into<String>,
+    url: impl Into<String>,
+    search_options: &SearchOptions,
+    request_options: &RequestFuncOptions,
+) -> serde_json::Value {
+    let key: String = key.into();
+    let url: String = url.into();
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::CONTENT_TYPE,
+        reqwest::header::HeaderValue::from_str("application/json").unwrap(),
+    );
+    headers.insert(
+        reqwest::header::HOST,
+        reqwest::header::HeaderValue::from_str("www.youtube.com").unwrap(),
+    );
+    headers.insert(
+        reqwest::header::REFERER,
+        reqwest::header::HeaderValue::from_str("https://www.youtube.com").unwrap(),
+    );
+
+    // if search_options.safe_search is true assign safe search cookie to reqwest request
+    if search_options.safe_search {
+        headers.insert(
+            reqwest::header::COOKIE,
+            reqwest::header::HeaderValue::from_str(SAFE_SEARCH_COOKIE).unwrap(),
+        );
+    }
+
+    let original_url = &request_options.original_url;
+    let query = &request_options.query;
+    let filter = if request_options.filter.is_some() {
+        format!(
+            r#""params": "{}","#,
+            request_options.filter.as_ref().unwrap()
+        )
+    } else {
+        "".to_string()
+    };
+
+    let format_str = format!(
+        r#"{{
+            "query": "{query}",
+            {filter}
+            "context": {{
+                "client": {{
+                    "utcOffsetMinutes": 0,
+                    "gl": "US",
+                    "hl": "en",
+                    "clientName": "WEB",
+                    "clientVersion": "1.20220406.00.00",
+                    "originalUrl": "{original_url}"
+                }}
+            }}
+        }}
+        "#
+    );
+
+    let body: serde_json::Value = serde_json::from_str(&format_str).unwrap();
+
+    let res = client
+        .post(format!("https://youtube.com/youtubei/v1${url}?key=${key}"))
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await;
+
+    if res.is_err() {
+        return serde_json::Value::Null;
+    }
+
+    let res = res.unwrap().json::<serde_json::Value>().await;
+
+    if res.is_err() {
+        return serde_json::Value::Null;
+    }
+
+    return res.unwrap();
+}
+
+fn parse_search_result(
+    client: &reqwest_middleware::ClientWithMiddleware,
+    html: impl Into<String>,
+    options: &SearchOptions,
+) -> Vec<SearchResult> {
+    let mut html: String = html.into();
+
+    html = {
+        let document = Html::parse_document(&html);
+        let scripts_selector = Selector::parse("script").unwrap();
+        let mut initial_response_string = document
+            .select(&scripts_selector)
+            .filter(|x| x.inner_html().contains("var ytInitialData ="))
+            .map(|x| x.inner_html().replace("var ytInitialData =", ""))
+            .into_iter()
+            .nth(0)
+            .unwrap_or(String::from(""))
+            .trim()
+            .to_string();
+
+        initial_response_string.pop();
+
+        initial_response_string
+    };
+
+    // check if html is not empty
+    if !html.is_empty() {
+        let serde_value = serde_json::from_str::<serde_json::Value>(&html).unwrap();
+        let contents = &serde_value["contents"]["twoColumnSearchResultsRenderer"]
+            ["primaryContents"]["sectionListRenderer"]["contents"][0]["itemSectionRenderer"]
+            ["contents"];
+
+        // if contents found try to format values
+        if !contents.is_null() {
+            return format_search_result(&client, contents, &options);
+        }
+    }
+
+    // if cannot fetch initial data return empty array
+    vec![]
+}
+
+fn format_search_result(
+    client: &reqwest_middleware::ClientWithMiddleware,
+    value: &serde_json::Value,
+    options: &SearchOptions,
+) -> Vec<SearchResult> {
+    let mut res: Vec<SearchResult> = vec![];
+    let only_numbers_regex = Regex::new(r"[^0-9]").unwrap();
+    // Not array we dont care
+    if value.is_array() {
+        let details = value.as_array().unwrap();
+
+        for data in details {
+            // if limit reached break to loop
+            if options.limit > 0 && res.len() >= (options.limit) as usize {
+                break;
+            }
+
+            let match_statemant = if options.search_type == SearchType::All {
+                if data
+                    .as_object()
+                    .and_then(|x| Some(x.contains_key("videoRenderer")))
+                    .unwrap_or(false)
+                {
+                    &SearchType::Video
+                } else if data
+                    .as_object()
+                    .and_then(|x| Some(x.contains_key("channelRenderer")))
+                    .unwrap_or(false)
+                {
+                    &SearchType::Channel
+                } else if data
+                    .as_object()
+                    .and_then(|x| Some(x.contains_key("playlistRenderer")))
+                    .unwrap_or(false)
+                {
+                    &SearchType::Playlist
+                } else {
+                    &SearchType::All
+                }
+            } else {
+                &options.search_type
+            };
+
+            match match_statemant {
+                SearchType::Video | SearchType::Film => {
+                    // cannot resolve continue
+                    if data.is_null() || data["videoRenderer"].is_null() {
+                        continue;
+                    }
+
+                    let badge = if !data["videoRenderer"]["ownerBadges"].is_array() {
+                        &data["videoRenderer"]["ownerBadges"]
+                    } else {
+                        &data["videoRenderer"]["ownerBadges"][0]
+                    };
+
+                    let video = Video {
+                        id: data["videoRenderer"]["videoId"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string(),
+                        url: format!(
+                            "https://www.youtube.com/watch?v={}",
+                            data["videoRenderer"]["videoId"].as_str().unwrap_or("")
+                        ),
+                        title: data["videoRenderer"]["title"]["runs"][0]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string(),
+                        description: if !data["videoRenderer"]["descriptionSnippet"]["runs"]
+                            .is_null()
+                        {
+                            data["videoRenderer"]["descriptionSnippet"]["runs"]
+                                .as_array()
+                                .and_then(|x| {
+                                    Some(
+                                        x.iter()
+                                            .map(|c| c["text"].as_str().unwrap_or(""))
+                                            .collect::<Vec<&str>>()
+                                            .join(""),
+                                    )
+                                })
+                                .unwrap_or("".to_string())
+                        } else if !data["videoRenderer"]["detailedMetadataSnippets"][0]
+                            ["snippetText"]["runs"]
+                            .is_null()
+                        {
+                            data["videoRenderer"]["detailedMetadataSnippets"][0]["snippetText"]
+                                ["runs"]
+                                .as_array()
+                                .and_then(|x| {
+                                    Some(
+                                        x.iter()
+                                            .map(|c| c["text"].as_str().unwrap_or(""))
+                                            .collect::<Vec<&str>>()
+                                            .join(""),
+                                    )
+                                })
+                                .unwrap_or("".to_string())
+                        } else {
+                            String::from("")
+                        },
+                        duration: if !data["videoRenderer"]["lengthText"].is_null() {
+                            time_to_ms(
+                                data["videoRenderer"]["lengthText"]["simpleText"]
+                                    .as_str()
+                                    .unwrap_or("0:00"),
+                            ) as u64
+                        } else {
+                            0u64
+                        },
+                        duration_raw: if !data["videoRenderer"]["lengthText"]["simpleText"]
+                            .is_null()
+                        {
+                            data["videoRenderer"]["lengthText"]["simpleText"]
+                                .as_str()
+                                .unwrap_or("0:00")
+                                .to_string()
+                        } else {
+                            String::from("0:00")
+                        },
+                        thumbnails: if data["videoRenderer"]["thumbnail"]["thumbnails"].is_array() {
+                            data["videoRenderer"]["thumbnail"]["thumbnails"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|x| Thumbnail {
+                                    width: x
+                                        .get("width")
+                                        .and_then(|x| {
+                                            if x.is_string() {
+                                                x.as_str().and_then(|x| match x.parse::<i64>() {
+                                                    Ok(a) => Some(a),
+                                                    Err(_err) => Some(0i64),
+                                                })
+                                            } else {
+                                                x.as_i64()
+                                            }
+                                        })
+                                        .unwrap_or(0i64)
+                                        as u64,
+                                    height: x
+                                        .get("height")
+                                        .and_then(|x| {
+                                            if x.is_string() {
+                                                x.as_str().and_then(|x| match x.parse::<i64>() {
+                                                    Ok(a) => Some(a),
+                                                    Err(_err) => Some(0i64),
+                                                })
+                                            } else {
+                                                x.as_i64()
+                                            }
+                                        })
+                                        .unwrap_or(0i64)
+                                        as u64,
+                                    url: x
+                                        .get("url")
+                                        .and_then(|x| x.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                })
+                                .collect::<Vec<Thumbnail>>()
+                        } else {
+                            vec![]
+                        },
+                        channel: Channel {
+                            id: data["videoRenderer"]["ownerText"]["runs"][0]["navigationEndpoint"]
+                                ["browseEndpoint"]["browseId"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string(),
+                            name: data["videoRenderer"]["ownerText"]["runs"][0]["text"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string(),
+                            url: if !data["videoRenderer"]["ownerText"]["runs"][0]
+                                ["navigationEndpoint"]["browseEndpoint"]["canonicalBaseUrl"]
+                                .is_null()
+                            {
+                                format!(
+                                    "https://www.youtube.com{}",
+                                    data["videoRenderer"]["ownerText"]["runs"][0]
+                                        ["navigationEndpoint"]["browseEndpoint"]
+                                        ["canonicalBaseUrl"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                )
+                            } else if !data["videoRenderer"]["ownerText"]["runs"][0]
+                                ["navigationEndpoint"]["commandMetadata"]["webCommandMetadata"]
+                                ["url"]
+                                .is_null()
+                            {
+                                format!(
+                                    "https://www.youtube.com{}",
+                                    data["videoRenderer"]["ownerText"]["runs"][0]
+                                        ["navigationEndpoint"]["commandMetadata"]
+                                        ["webCommandMetadata"]["url"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                )
+                            } else {
+                                String::from("")
+                            },
+                            icon: if data["videoRenderer"]["channelThumbnail"]["thumbnails"]
+                                .is_array()
+                            {
+                                data["videoRenderer"]["channelThumbnail"]["thumbnails"]
+                                    .as_array()
+                                    .unwrap()
+                                    .iter()
+                                    .map(|x| Thumbnail {
+                                        width: x
+                                            .get("width")
+                                            .and_then(|x| {
+                                                if x.is_string() {
+                                                    x.as_str().and_then(|x| {
+                                                        match x.parse::<i64>() {
+                                                            Ok(a) => Some(a),
+                                                            Err(_err) => Some(0i64),
+                                                        }
+                                                    })
+                                                } else {
+                                                    x.as_i64()
+                                                }
+                                            })
+                                            .unwrap_or(0i64)
+                                            as u64,
+                                        height: x
+                                            .get("height")
+                                            .and_then(|x| {
+                                                if x.is_string() {
+                                                    x.as_str().and_then(|x| {
+                                                        match x.parse::<i64>() {
+                                                            Ok(a) => Some(a),
+                                                            Err(_err) => Some(0i64),
+                                                        }
+                                                    })
+                                                } else {
+                                                    x.as_i64()
+                                                }
+                                            })
+                                            .unwrap_or(0i64)
+                                            as u64,
+                                        url: x
+                                            .get("url")
+                                            .and_then(|x| x.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                    })
+                                    .collect::<Vec<Thumbnail>>()
+                            } else if data["videoRenderer"]["channelThumbnailSupportedRenderers"]
+                                ["channelThumbnailWithLinkRenderer"]["thumbnail"]["thumbnails"]
+                                .is_array()
+                            {
+                                data["videoRenderer"]["channelThumbnailSupportedRenderers"]
+                                    ["channelThumbnailWithLinkRenderer"]["thumbnail"]["thumbnails"]
+                                    .as_array()
+                                    .unwrap()
+                                    .iter()
+                                    .map(|x| Thumbnail {
+                                        width: x
+                                            .get("width")
+                                            .and_then(|x| {
+                                                if x.is_string() {
+                                                    x.as_str().and_then(|x| {
+                                                        match x.parse::<i64>() {
+                                                            Ok(a) => Some(a),
+                                                            Err(_err) => Some(0i64),
+                                                        }
+                                                    })
+                                                } else {
+                                                    x.as_i64()
+                                                }
+                                            })
+                                            .unwrap_or(0i64)
+                                            as u64,
+                                        height: x
+                                            .get("height")
+                                            .and_then(|x| {
+                                                if x.is_string() {
+                                                    x.as_str().and_then(|x| {
+                                                        match x.parse::<i64>() {
+                                                            Ok(a) => Some(a),
+                                                            Err(_err) => Some(0i64),
+                                                        }
+                                                    })
+                                                } else {
+                                                    x.as_i64()
+                                                }
+                                            })
+                                            .unwrap_or(0i64)
+                                            as u64,
+                                        url: x
+                                            .get("url")
+                                            .and_then(|x| x.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                    })
+                                    .collect::<Vec<Thumbnail>>()
+                            } else {
+                                vec![]
+                            },
+                            verified: if badge["metadataBadgeRenderer"]["style"].is_string() {
+                                badge["metadataBadgeRenderer"]["style"]
+                                    .as_str()
+                                    .unwrap_or("")
+                                    .to_lowercase()
+                                    .contains("verified")
+                            } else {
+                                false
+                            },
+                            subscribers: 0,
+                        },
+                        uploaded_at: if data["videoRenderer"]["publishedTimeText"]["simpleText"]
+                            .is_string()
+                        {
+                            Some(
+                                data["videoRenderer"]["publishedTimeText"]["simpleText"]
+                                    .as_str()
+                                    .unwrap_or("")
+                                    .to_string(),
+                            )
+                        } else {
+                            None
+                        },
+                        views: if data["videoRenderer"]["viewCountText"]["simpleText"].is_string() {
+                            let view_count = only_numbers_regex.replace_all(
+                                data["videoRenderer"]["viewCountText"]["simpleText"]
+                                    .as_str()
+                                    .unwrap_or("0"),
+                                "",
+                            );
+
+                            view_count.parse::<u64>().unwrap_or(0)
+                        } else {
+                            0u64
+                        },
+                    };
+
+                    res.push(SearchResult::Video(video));
+                }
+                SearchType::Channel => {
+                    // cannot resolve continue
+                    if data.is_null() || data["channelRenderer"].is_null() {
+                        continue;
+                    }
+
+                    let badges = &data["channelRenderer"]["ownerBadges"];
+
+                    let channel = Channel {
+                        id: data["channelRenderer"]["channelId"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string(),
+                        name: data["channelRenderer"]["title"]["simpleText"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string(),
+                        url: if !data["channelRenderer"]["navigationEndpoint"]["browseEndpoint"]
+                            ["canonicalBaseUrl"]
+                            .is_null()
+                        {
+                            format!(
+                                "https://www.youtube.com{}",
+                                data["channelRenderer"]["navigationEndpoint"]["browseEndpoint"]
+                                    ["canonicalBaseUrl"]
+                                    .as_str()
+                                    .unwrap_or("")
+                            )
+                        } else if !data["channelRenderer"]["navigationEndpoint"]["commandMetadata"]
+                            ["webCommandMetadata"]["url"]
+                            .is_null()
+                        {
+                            format!(
+                                "https://www.youtube.com{}",
+                                data["channelRenderer"]["navigationEndpoint"]["commandMetadata"]
+                                    ["webCommandMetadata"]["url"]
+                                    .as_str()
+                                    .unwrap_or("")
+                            )
+                        } else {
+                            String::from("")
+                        },
+                        icon: if data["channelRenderer"]["thumbnail"]["thumbnails"].is_array() {
+                            data["channelRenderer"]["thumbnail"]["thumbnails"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|x| Thumbnail {
+                                    width: x
+                                        .get("width")
+                                        .and_then(|x| {
+                                            if x.is_string() {
+                                                x.as_str().and_then(|x| match x.parse::<i64>() {
+                                                    Ok(a) => Some(a),
+                                                    Err(_err) => Some(0i64),
+                                                })
+                                            } else {
+                                                x.as_i64()
+                                            }
+                                        })
+                                        .unwrap_or(0i64)
+                                        as u64,
+                                    height: x
+                                        .get("height")
+                                        .and_then(|x| {
+                                            if x.is_string() {
+                                                x.as_str().and_then(|x| match x.parse::<i64>() {
+                                                    Ok(a) => Some(a),
+                                                    Err(_err) => Some(0i64),
+                                                })
+                                            } else {
+                                                x.as_i64()
+                                            }
+                                        })
+                                        .unwrap_or(0i64)
+                                        as u64,
+                                    url: x
+                                        .get("url")
+                                        .and_then(|x| x.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                })
+                                .collect::<Vec<Thumbnail>>()
+                        } else {
+                            vec![]
+                        },
+                        verified: if badges.is_array() {
+                            badges.as_array().unwrap().iter().any(|badge| {
+                                !badge["verifiedBadge"].is_null()
+                                    || badge["metadataBadgeRenderer"]["style"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                        .to_lowercase()
+                                        .contains("verified")
+                            })
+                        } else {
+                            false
+                        },
+                        subscribers: if !data["channelRenderer"]["subscriberCountText"]
+                            ["simpleText"]
+                            .is_null()
+                        {
+                            let sub_count = only_numbers_regex.replace_all(
+                                data["channelRenderer"]["subscriberCountText"]["simpleText"]
+                                    .as_str()
+                                    .unwrap_or("0"),
+                                "",
+                            );
+
+                            sub_count.parse::<u64>().unwrap_or(0)
+                        } else {
+                            0
+                        },
+                    };
+
+                    res.push(SearchResult::Channel(channel));
+                }
+                SearchType::Playlist => {
+                    // cannot resolve continue
+                    if data.is_null() || data["playlistRenderer"].is_null() {
+                        continue;
+                    }
+
+                    let playlist = Playlist {
+                        id: data["playlistRenderer"]["playlistId"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string(),
+                        name: data["playlistRenderer"]["title"]["simpleText"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string(),
+                        url: if data["playlistRenderer"]["playlistId"].is_string() {
+                            format!(
+                                "https://www.youtube.com/playlist?list={}",
+                                data["playlistRenderer"]["playlistId"]
+                                    .as_str()
+                                    .unwrap_or("")
+                            )
+                        } else {
+                            String::from("")
+                        },
+                        channel: Channel {
+                            id: data["playlistRenderer"]["shortBylineText"]["runs"][0]
+                                ["navigationEndpoint"]["browseEndpoint"]["browseId"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string(),
+                            name: data["playlistRenderer"]["shortBylineText"]["runs"][0]["text"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string(),
+                            url: if data["playlistRenderer"]["shortBylineText"]["runs"][0]
+                                ["navigationEndpoint"]["browseEndpoint"]["canonicalBaseUrl"]
+                                .is_string()
+                            {
+                                format!(
+                                    "https://www.youtube.com{}",
+                                    data["playlistRenderer"]["shortBylineText"]["runs"][0]
+                                        ["navigationEndpoint"]["browseEndpoint"]
+                                        ["canonicalBaseUrl"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                )
+                            } else if data["playlistRenderer"]["shortBylineText"]["runs"][0]
+                                ["navigationEndpoint"]["commandMetadata"]["webCommandMetadata"]
+                                ["url"]
+                                .is_string()
+                            {
+                                format!(
+                                    "https://www.youtube.com{}",
+                                    data["playlistRenderer"]["shortBylineText"]["runs"][0]
+                                        ["navigationEndpoint"]["commandMetadata"]
+                                        ["webCommandMetadata"]["url"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                )
+                            } else {
+                                String::from("")
+                            },
+                            icon: vec![],
+                            verified: if data["playlistRenderer"]["ownerBadges"].is_array() {
+                                data["playlistRenderer"]["ownerBadges"]
+                                    .as_array()
+                                    .unwrap()
+                                    .iter()
+                                    .any(|badge| {
+                                        !badge["verifiedBadge"].is_null()
+                                            || badge["metadataBadgeRenderer"]["style"]
+                                                .as_str()
+                                                .unwrap_or("")
+                                                .to_lowercase()
+                                                .contains("verified")
+                                    })
+                            } else {
+                                false
+                            },
+                            subscribers: 0,
+                        },
+                        thumbnails: if data["playlistRenderer"]["thumbnails"][0]["thumbnails"]
+                            .is_array()
+                        {
+                            data["playlistRenderer"]["thumbnails"][0]["thumbnails"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|x| Thumbnail {
+                                    width: x
+                                        .get("width")
+                                        .and_then(|x| {
+                                            if x.is_string() {
+                                                x.as_str().and_then(|x| match x.parse::<i64>() {
+                                                    Ok(a) => Some(a),
+                                                    Err(_err) => Some(0i64),
+                                                })
+                                            } else {
+                                                x.as_i64()
+                                            }
+                                        })
+                                        .unwrap_or(0i64)
+                                        as u64,
+                                    height: x
+                                        .get("height")
+                                        .and_then(|x| {
+                                            if x.is_string() {
+                                                x.as_str().and_then(|x| match x.parse::<i64>() {
+                                                    Ok(a) => Some(a),
+                                                    Err(_err) => Some(0i64),
+                                                })
+                                            } else {
+                                                x.as_i64()
+                                            }
+                                        })
+                                        .unwrap_or(0i64)
+                                        as u64,
+                                    url: x
+                                        .get("url")
+                                        .and_then(|x| x.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                })
+                                .collect::<Vec<Thumbnail>>()
+                        } else if data["playlistRenderer"]["thumbnailRenderer"]
+                            ["playlistVideoThumbnailRenderer"]["thumbnail"]["thumbnails"]
+                            .is_array()
+                        {
+                            data["playlistRenderer"]["thumbnailRenderer"]
+                                ["playlistVideoThumbnailRenderer"]["thumbnail"]["thumbnails"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|x| Thumbnail {
+                                    width: x
+                                        .get("width")
+                                        .and_then(|x| {
+                                            if x.is_string() {
+                                                x.as_str().and_then(|x| match x.parse::<i64>() {
+                                                    Ok(a) => Some(a),
+                                                    Err(_err) => Some(0i64),
+                                                })
+                                            } else {
+                                                x.as_i64()
+                                            }
+                                        })
+                                        .unwrap_or(0i64)
+                                        as u64,
+                                    height: x
+                                        .get("height")
+                                        .and_then(|x| {
+                                            if x.is_string() {
+                                                x.as_str().and_then(|x| match x.parse::<i64>() {
+                                                    Ok(a) => Some(a),
+                                                    Err(_err) => Some(0i64),
+                                                })
+                                            } else {
+                                                x.as_i64()
+                                            }
+                                        })
+                                        .unwrap_or(0i64)
+                                        as u64,
+                                    url: x
+                                        .get("url")
+                                        .and_then(|x| x.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                })
+                                .collect::<Vec<Thumbnail>>()
+                        } else {
+                            vec![]
+                        },
+                        // we cannot get videos, views and last_update from search we need to send request to playlist url
+                        views: 0,
+                        videos: vec![],
+                        last_update: None,
+                        // continuation not available in search
+                        continuation: None,
+                        client: client.clone(),
+                    };
+
+                    res.push(SearchResult::Playlist(playlist));
+                }
+                // Not proper type! skip it
+                _ => continue,
+            }
+        }
+    }
+
+    // return results array
+    res
 }

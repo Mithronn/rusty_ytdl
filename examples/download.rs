@@ -6,5 +6,9 @@ async fn main() {
 
     let video = Video::new(video_url).unwrap();
 
-    println!("{:#?}", video.download().await.unwrap());
+    let stream = video.stream().await.unwrap();
+
+    while let Ok(chunk) = stream.chunk().await {
+        println!("{:#?}", chunk);
+    }
 }

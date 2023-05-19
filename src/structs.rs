@@ -123,6 +123,16 @@ pub enum VideoError {
     IsNotPlaylist(String),
     #[error("Playlist body cannot parsed")]
     PlaylistBodyCannotParsed,
+    #[error("Download Error: {0}")]
+    DownloadError(String),
+    #[error("Encryption Error: {0}")]
+    EncryptionError(String),
+    #[error("Decryption Error: {0}")]
+    DecryptionError(String),
+    #[error(transparent)]
+    HexError(#[from] hex::FromHexError),
+    #[error("Process Error: {0}")]
+    ChildProcessError(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

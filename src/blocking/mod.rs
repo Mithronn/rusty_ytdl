@@ -3,6 +3,8 @@ mod info;
 #[cfg(feature = "search")]
 pub mod search;
 
+pub mod stream;
+
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 

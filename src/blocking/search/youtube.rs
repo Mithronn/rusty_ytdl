@@ -1,5 +1,6 @@
 pub use crate::search::{
-    Channel, PlaylistSearchOptions, RequestOptions, SearchOptions, SearchResult, SearchType, Video,
+    Channel, EmbedOptions, PlaylistSearchOptions, RequestOptions, SearchOptions, SearchResult,
+    SearchType, Video,
 };
 use crate::search::{Playlist as AsyncPlaylist, YouTube as AsyncYouTube};
 use crate::{block_async, VideoError};

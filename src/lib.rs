@@ -4,7 +4,7 @@
 
 mod info;
 mod info_extras;
-mod live_stream;
+mod stream;
 mod structs;
 mod utils;
 

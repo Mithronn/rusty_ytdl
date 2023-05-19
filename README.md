@@ -19,15 +19,13 @@ Download videos **blazing-fast** without getting stuck on Youtube download speed
 
 ## Roadmap
 
-- [ ] download live videos
-- [x] full video info deserialization
 - [ ] ffmpeg feature
 - [ ] CLI
 - [ ] benchmarks
 
 ## Features
 
-- Download videos (only non-live videos for now)
+- Download live and non-live videos
 - Search with query (Video, Playlist, Channel)
 - Blocking and asynchronous API
 - Proxy, IPv6, and cookie support on request
@@ -42,12 +40,21 @@ async fn main() {
   let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc"; // FZ8BxMU3BYc works too!
   let video = Video::new(url).unwrap();
 
-  let video_download_buffer = video.download().await;
+  let stream = video.stream().await.unwrap();
 
-  // Do what you want with video buffer vector
-  println!("{:#?}",video_buffer);
+  while let Ok(chunk) = stream.chunk().await {
+    // Do what you want with chunks
+    println!("{:#?}", chunk);
+  }
 
+  // Or direct download to path
+  let path = std::path::Path::new(r"test.mp3");
+
+  video.download(path).await.unwrap();
+
+  //
   // Or with options
+  //
 
   let video_options = VideoOptions {
     quality: VideoQuality::Lowest,
@@ -56,10 +63,18 @@ async fn main() {
   };
 
   let video = Video::new_with_options(url, video_options).unwrap();
-  let video_download_buffer = video.download().await;
 
-  // Do what you want with video buffer vector
-  println!("{:#?}",video_buffer);
+  let stream = video.stream().await.unwrap();
+
+  while let Ok(chunk) = stream.chunk().await {
+    // Do what you want with chunks
+    println!("{:#?}", chunk);
+  }
+
+  // Or direct download to path
+  let path = std::path::Path::new(r"test.mp3");
+
+  video.download(path).await.unwrap();
 }
 ```
 
@@ -143,5 +158,5 @@ Or add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rusty_ytdl = "0.5.0"
+rusty_ytdl = "0.6.0"
 ```

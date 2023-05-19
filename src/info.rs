@@ -4,13 +4,13 @@ use std::sync::Arc;
 use scraper::{Html, Selector};
 use xml_oxide::{sax::parser::Parser, sax::Event};
 
-use crate::constants::{BASE_URL, DEFAULT_HEADERS, FORMATS};
+use crate::constants::{BASE_URL, FORMATS};
 use crate::info_extras::{get_media, get_related_videos};
-use crate::live_stream;
+use crate::stream::{LiveStream, LiveStreamOptions, NonLiveStream, NonLiveStreamOptions, Stream};
 use crate::structs::{VideoError, VideoFormat, VideoInfo, VideoOptions};
 
 use crate::utils::{
-    add_format_meta, choose_format, clean_video_details, get_functions, get_html5player,
+    add_format_meta, choose_format, clean_video_details, get_functions, get_html, get_html5player,
     get_random_v6_ip, get_video_id, is_not_yet_broadcasted, is_play_error, is_private_video,
     is_rental, parse_video_formats, sort_formats,
 };
@@ -117,19 +117,7 @@ impl Video {
             return Err(VideoError::URLParseError(url_parsed.err().unwrap()));
         }
 
-        let request = client.get(url_parsed.unwrap().as_str()).send().await;
-
-        if request.is_err() {
-            return Err(VideoError::ReqwestMiddleware(request.err().unwrap()));
-        }
-
-        let response_first = request.unwrap().text().await;
-
-        if response_first.is_err() {
-            return Err(VideoError::BodyCannotParsed);
-        }
-
-        let response = response_first.unwrap();
+        let response = get_html(&client, url_parsed.unwrap().as_str(), None).await?;
 
         let (player_response, initial_response): (serde_json::Value, serde_json::Value) = {
             let document = Html::parse_document(&response);
@@ -315,7 +303,7 @@ impl Video {
         return Ok(info);
     }
 
-    pub async fn download(&self) -> Result<Vec<u8>, VideoError> {
+    pub async fn stream(&self) -> Result<Box<dyn Stream>, VideoError> {
         let client = &self.client;
 
         let info = self.get_info().await?;
@@ -328,18 +316,18 @@ impl Video {
             return Err(VideoError::VideoSourceNotFound);
         }
 
-        // Only check for HLS formats
-        //
-        // Currently not supporting live streams
+        // Only check for HLS formats for live streams
         if format.is_hls {
-            // let live_stream_p = live_stream::LiveStream::new(link, client.clone());
-            // let a = live_stream_p.parse().await;
+            let stream = LiveStream::new(LiveStreamOptions {
+                client: Some(client.clone()),
+                stream_url: link,
+            });
 
-            // if a.is_err() {
-            //     return Err(a.err().unwrap());
-            // }
+            if stream.is_err() {
+                return Err(stream.err().unwrap());
+            }
 
-            return Ok(vec![]);
+            return Ok(Box::new(stream.unwrap()));
         }
 
         let dl_chunk_size = if self.options.download_options.dl_chunk_size.is_some() {
@@ -348,57 +336,8 @@ impl Video {
             1024 * 1024 * 10 as u64 // -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
         };
 
-        async fn get_next_chunk(
-            client: &reqwest_middleware::ClientWithMiddleware,
-            link: &str,
-            content_length: &u64,
-            dl_chunk_size: &u64,
-            start: &mut u64,
-            end: &mut u64,
-        ) -> Result<Vec<u8>, VideoError> {
-            if *end >= *content_length {
-                *end = 0;
-            }
-
-            let mut headers = DEFAULT_HEADERS.clone();
-
-            let range_end = if *end == 0 {
-                "".to_string()
-            } else {
-                end.to_string()
-            };
-            headers.insert(
-                reqwest::header::RANGE,
-                format!("bytes={}-{}", start, range_end).parse().unwrap(),
-            );
-
-            let response = client.get(link).headers(headers).send().await;
-
-            if response.is_err() {
-                return Err(VideoError::ReqwestMiddleware(response.err().unwrap()));
-            }
-
-            let mut response = response.expect("IMPOSSIBLE");
-
-            let mut buf: Vec<u8> = vec![];
-
-            while let Some(chunk) = response.chunk().await.map_err(|e| VideoError::Reqwest(e))? {
-                let chunk = chunk.to_vec();
-                buf.extend(chunk.iter());
-                // println!("Chunk recieved: {:?}", chunk.len());
-            }
-
-            if *end != 0 {
-                *start = *end + 1;
-                *end += *dl_chunk_size;
-                // println!("Chunking new: Length {:?}", start);
-            }
-
-            Ok(buf)
-        }
-
-        let mut start = 0;
-        let mut end = start + dl_chunk_size;
+        let start = 0;
+        let end = start + dl_chunk_size;
 
         let mut content_length = format
             .content_length
@@ -422,31 +361,35 @@ impl Video {
             content_length = content_length_response.unwrap();
         }
 
-        let mut buf: Vec<u8> = vec![];
-        loop {
-            let chunk_result = get_next_chunk(
-                &client,
-                &link,
-                &content_length,
-                &dl_chunk_size,
-                &mut start,
-                &mut end,
-            )
-            .await;
+        let stream = NonLiveStream::new(NonLiveStreamOptions {
+            client: Some(client.clone()),
+            link,
+            content_length,
+            dl_chunk_size,
+            start,
+            end,
+        });
 
-            if chunk_result.is_err() {
-                break;
-            }
-
-            buf.extend(chunk_result.unwrap().iter());
-
-            if end == 0 {
-                // Nothing else remain, break to loop!
-                break;
-            }
+        if stream.is_err() {
+            return Err(stream.err().unwrap());
         }
 
-        Ok(buf)
+        Ok(Box::new(stream.unwrap()))
+    }
+
+    pub async fn download<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), VideoError> {
+        use std::io::Write;
+        let stream = self.stream().await.unwrap();
+
+        let mut file =
+            std::fs::File::create(path).map_err(|e| VideoError::DownloadError(e.to_string()))?;
+
+        while let Some(chunk) = stream.chunk().await.unwrap() {
+            file.write_all(&chunk)
+                .map_err(|e| VideoError::DownloadError(e.to_string()))?;
+        }
+
+        Ok(())
     }
 
     pub fn get_video_url(&self) -> String {
@@ -456,8 +399,19 @@ impl Video {
     pub fn get_video_id(&self) -> String {
         return self.video_id.clone();
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn get_client(&self) -> &reqwest_middleware::ClientWithMiddleware {
+        &self.client
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn get_options(&self) -> VideoOptions {
+        self.options.clone()
+    }
 }
 
+#[allow(dead_code)]
 async fn get_dash_manifest(
     url: &str,
     client: &reqwest_middleware::ClientWithMiddleware,
@@ -476,19 +430,7 @@ async fn get_dash_manifest(
         .and_then(|x| Ok(x.as_str().to_string()))
         .unwrap_or("".to_string());
 
-    let response = client.get(url).send().await;
-
-    if response.is_err() {
-        return Err(VideoError::ReqwestMiddleware(response.err().unwrap()));
-    }
-
-    let response = response.unwrap().text().await;
-
-    if response.is_err() {
-        return Err(VideoError::BodyCannotParsed);
-    }
-
-    let body = response.unwrap();
+    let body = get_html(&client, &url, None).await?;
 
     let mut parser = Parser::from_reader(body.as_bytes());
 
@@ -605,19 +547,7 @@ async fn get_m3u8(
         .and_then(|x| Ok(x.as_str().to_string()))
         .unwrap_or("".to_string());
 
-    let response = client.get(url).send().await;
-
-    if response.is_err() {
-        return Err(VideoError::ReqwestMiddleware(response.err().unwrap()));
-    }
-
-    let response = response.unwrap().text().await;
-
-    if response.is_err() {
-        return Err(VideoError::BodyCannotParsed);
-    }
-
-    let body = response.unwrap();
+    let body = get_html(&client, &url, None).await?;
 
     let http_regex = regex::Regex::new(r"^https?://").unwrap();
     let itag_regex = regex::Regex::new(r"/itag/(\d+)/").unwrap();
