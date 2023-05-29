@@ -26,6 +26,7 @@ pub struct Video {
 }
 
 impl Video {
+    /// Crate [`Video`] struct to get info or download with default [`VideoOptions`]
     pub fn new(url_or_id: impl Into<String>) -> Result<Self, VideoError> {
         let id = get_video_id(&url_or_id.into());
 
@@ -35,7 +36,7 @@ impl Video {
 
         let client = reqwest::Client::builder()
             .build()
-            .map_err(|op| VideoError::Reqwest(op))?;
+            .map_err(VideoError::Reqwest)?;
 
         let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
             .retry_bounds(
@@ -56,6 +57,7 @@ impl Video {
         })
     }
 
+    /// Crate [`Video`] struct to get info or download with custom [`VideoOptions`]
     pub fn new_with_options(
         url_or_id: impl Into<String>,
         options: VideoOptions,
@@ -87,7 +89,7 @@ impl Video {
             client = client.cookie_provider(Arc::new(jar));
         }
 
-        let client = client.build().map_err(|op| VideoError::Reqwest(op))?;
+        let client = client.build().map_err(VideoError::Reqwest)?;
 
         let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
             .retry_bounds(
@@ -108,6 +110,8 @@ impl Video {
         })
     }
 
+    /// Try to get basic information about video
+    /// - `HLS` and `DashMPD` formats excluded!
     pub async fn get_basic_info(&self) -> Result<VideoInfo, VideoError> {
         let client = &self.client;
 
@@ -117,7 +121,7 @@ impl Video {
             return Err(VideoError::URLParseError(url_parsed.err().unwrap()));
         }
 
-        let response = get_html(&client, url_parsed.unwrap().as_str(), None).await?;
+        let response = get_html(client, url_parsed.unwrap().as_str(), None).await?;
 
         let (player_response, initial_response): (serde_json::Value, serde_json::Value) = {
             let document = Html::parse_document(&response);
@@ -126,8 +130,7 @@ impl Video {
                 .select(&scripts_selector)
                 .filter(|x| x.inner_html().contains("var ytInitialPlayerResponse ="))
                 .map(|x| x.inner_html().replace("var ytInitialPlayerResponse =", ""))
-                .into_iter()
-                .nth(0)
+                .next()
                 .unwrap_or(String::from(""))
                 .trim()
                 .to_string();
@@ -135,8 +138,7 @@ impl Video {
                 .select(&scripts_selector)
                 .filter(|x| x.inner_html().contains("var ytInitialData ="))
                 .map(|x| x.inner_html().replace("var ytInitialData =", ""))
-                .into_iter()
-                .nth(0)
+                .next()
                 .unwrap_or(String::from(""))
                 .trim()
                 .to_string();
@@ -179,27 +181,29 @@ impl Video {
             .get("streamingData")
             .and_then(|x| x.get("dashManifestUrl"))
             .and_then(|x| x.as_str())
-            .and_then(|x| Some(x.to_string()));
+            .map(|x| x.to_string());
 
         let hls_manifest_url = player_response
             .get("streamingData")
             .and_then(|x| x.get("hlsManifestUrl"))
             .and_then(|x| x.as_str())
-            .and_then(|x| Some(x.to_string()));
+            .map(|x| x.to_string());
 
-        return Ok(VideoInfo {
+        Ok(VideoInfo {
             dash_manifest_url,
             hls_manifest_url,
             formats: parse_video_formats(
                 &player_response,
-                get_functions(get_html5player(response.as_str()).unwrap(), &client).await?,
+                get_functions(get_html5player(response.as_str()).unwrap(), client).await?,
             )
             .unwrap_or(vec![]),
             related_videos: get_related_videos(&initial_response).unwrap_or(vec![]),
             video_details,
-        });
+        })
     }
 
+    /// Try to get full information about video
+    /// - `HLS` and `DashMPD` formats included!
     pub async fn get_info(&self) -> Result<VideoInfo, VideoError> {
         let client = &self.client;
 
@@ -239,7 +243,7 @@ impl Video {
 
         if has_manifest && info.hls_manifest_url.is_some() {
             let url = info.hls_manifest_url.as_ref().expect("IMPOSSIBLE");
-            let unformated_formats = get_m3u8(&url, &client).await;
+            let unformated_formats = get_m3u8(url, client).await;
 
             // Skip if error occured
             if unformated_formats.is_ok() {
@@ -300,9 +304,23 @@ impl Video {
 
         // Last sort formats
         info.formats.sort_by(sort_formats);
-        return Ok(info);
+        Ok(info)
     }
 
+    /// Try to turn [`Stream`] implemented [`LiveStream`] or [`NonLiveStream`] depend on the video.
+    /// If function successfully return can download video chunk by chunk
+    /// # Example
+    /// ```ignore
+    ///     let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc";
+    ///
+    ///     let video = Video::new(video_url).unwrap();
+    ///
+    ///     let stream = video.stream().await.unwrap();
+    ///
+    ///     while let Some(chunk) = stream.chunk().await.unwrap() {
+    ///           println!("{:#?}", chunk);
+    ///     }
+    /// ```
     pub async fn stream(&self) -> Result<Box<dyn Stream>, VideoError> {
         let client = &self.client;
 
@@ -333,7 +351,7 @@ impl Video {
         let dl_chunk_size = if self.options.download_options.dl_chunk_size.is_some() {
             self.options.download_options.dl_chunk_size.unwrap()
         } else {
-            1024 * 1024 * 10 as u64 // -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
+            1024 * 1024 * 10_u64 // -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
         };
 
         let start = 0;
@@ -351,7 +369,7 @@ impl Video {
                 .get(&link)
                 .send()
                 .await
-                .map_err(|op| VideoError::ReqwestMiddleware(op))?
+                .map_err(VideoError::ReqwestMiddleware)?
                 .content_length();
 
             if content_length_response.is_none() {
@@ -377,6 +395,7 @@ impl Video {
         Ok(Box::new(stream.unwrap()))
     }
 
+    /// Download video directly to the file
     pub async fn download<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), VideoError> {
         use std::io::Write;
         let stream = self.stream().await.unwrap();
@@ -392,12 +411,14 @@ impl Video {
         Ok(())
     }
 
+    /// Get video URL
     pub fn get_video_url(&self) -> String {
-        return format!("{}{}", BASE_URL, &self.video_id);
+        format!("{}{}", BASE_URL, &self.video_id)
     }
 
+    /// Get video id
     pub fn get_video_id(&self) -> String {
-        return self.video_id.clone();
+        self.video_id.clone()
     }
 
     #[allow(dead_code)]
@@ -423,14 +444,14 @@ async fn get_dash_manifest(
         .and_then(|mut x| {
             let set_host_result = x.set_host(Some(base_url_host));
             if set_host_result.is_err() {
-                return Err(set_host_result.err().expect("How can be possible"));
+                return Err(set_host_result.expect_err("How can be possible"));
             }
             Ok(x)
         })
-        .and_then(|x| Ok(x.as_str().to_string()))
+        .map(|x| x.as_str().to_string())
         .unwrap_or("".to_string());
 
-    let body = get_html(&client, &url, None).await?;
+    let body = get_html(client, &url, None).await?;
 
     let mut parser = Parser::from_reader(body.as_bytes());
 
@@ -464,7 +485,7 @@ async fn get_dash_manifest(
                                 let mut format = serde_json::json!({
                                     "itag": itag,
                                     "bitrate": representation.get("bandwith").and_then(|x| x.parse::<i32>().ok()).unwrap_or(0),
-                                    "mimeType": format!(r#"{}; codecs="{}""#,adaptation_set.get("mimetype").and_then(|x| Some(x.as_str())).unwrap_or(""),representation.get("codecs").and_then(|x| Some(x.as_str())).unwrap_or(""))
+                                    "mimeType": format!(r#"{}; codecs="{}""#,adaptation_set.get("mimetype").map(|x| x.as_str()).unwrap_or(""),representation.get("codecs").map(|x| x.as_str()).unwrap_or(""))
                                 });
                                 let format_as_object_mut =
                                     format.as_object_mut().expect("IMPOSSIBLE");
@@ -526,7 +547,7 @@ async fn get_dash_manifest(
         }
     }
 
-    return Ok(formats);
+    Ok(formats)
 }
 
 async fn get_m3u8(
@@ -540,20 +561,20 @@ async fn get_m3u8(
         .and_then(|mut x| {
             let set_host_result = x.set_host(Some(base_url_host));
             if set_host_result.is_err() {
-                return Err(set_host_result.err().expect("How can be posible"));
+                return Err(set_host_result.expect_err("How can be posible"));
             }
             Ok(x)
         })
-        .and_then(|x| Ok(x.as_str().to_string()))
+        .map(|x| x.as_str().to_string())
         .unwrap_or("".to_string());
 
-    let body = get_html(&client, &url, None).await?;
+    let body = get_html(client, &url, None).await?;
 
     let http_regex = regex::Regex::new(r"^https?://").unwrap();
     let itag_regex = regex::Regex::new(r"/itag/(\d+)/").unwrap();
 
     let itag_and_url = body
-        .split("\n")
+        .split('\n')
         .filter(|x| http_regex.is_match(x) && itag_regex.is_match(x));
 
     let itag_and_url: Vec<(String, String)> = itag_and_url
@@ -562,8 +583,8 @@ async fn get_m3u8(
                 .captures(line)
                 .expect("IMPOSSIBLE")
                 .get(1)
-                .and_then(|x| Some(x.as_str()))
-                .unwrap_or_else(|| "");
+                .map(|x| x.as_str())
+                .unwrap_or("");
 
             // println!("itag: {}, url: {}", itag, line);
             (itag.to_string(), line.to_string())

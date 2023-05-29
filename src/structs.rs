@@ -16,30 +16,40 @@ pub struct VideoInfo {
 
 #[derive(Clone, PartialEq, Debug, derive_more::Display)]
 pub enum VideoSearchOptions {
+    /// Video & Audio
     #[display(fmt = "Video & Audio")]
     VideoAudio,
+    /// Only Video
     #[display(fmt = "Video")]
     Video,
+    /// Only Audio
     #[display(fmt = "Audio")]
     Audio,
 }
 
 #[derive(Clone, PartialEq, Debug, derive_more::Display)]
 pub enum VideoQuality {
+    /// Highest Video & Audio
     #[display(fmt = "Highest")]
     Highest,
+    /// Lowest Video & Audio
     #[display(fmt = "Lowest")]
     Lowest,
+    /// Only Highest Audio
     #[display(fmt = "Highest Audio")]
     HighestAudio,
+    /// Only Lowest Audio
     #[display(fmt = "Lowest Audio")]
     LowestAudio,
+    /// Only Highest Video
     #[display(fmt = "Highest Video")]
     HighestVideo,
+    /// Only Lowest Video
     #[display(fmt = "Lowest Video")]
     LowestVideo,
 }
 
+/// Video search and download options
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
 #[display(fmt = "VideoOptions(quality: {quality}, filter: {filter})")]
 #[derivative(Debug, PartialEq, Eq)]
@@ -62,86 +72,128 @@ impl Default for VideoOptions {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, derive_more::Display)]
+/// Video download options
+#[derive(Clone, PartialEq, Debug, Default, derive_more::Display)]
 #[display(fmt = "DownloadOptions()")]
 pub struct DownloadOptions {
+    /// Maximum chunk size on per request
     pub dl_chunk_size: Option<u64>,
 }
 
-impl Default for DownloadOptions {
-    fn default() -> Self {
-        DownloadOptions {
-            dl_chunk_size: None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, derive_more::Display)]
+#[derive(Clone, Debug, Default, derive_more::Display)]
 #[display(fmt = "RequestOptions()")]
 pub struct RequestOptions {
+    /// [`reqwest::Proxy`] to on use request
+    ///
+    /// # Example
+    /// ```ignore
+    ///     let video_options = VideoOptions {
+    ///         request_options: RequestOptions {
+    ///              proxy: Some(
+    ///                   reqwest::Proxy::http("https://my.prox")
+    ///                   .unwrap()
+    ///                   .basic_auth("a", "b"),
+    ///              ),
+    ///              ..Default::default()
+    ///         },
+    ///         ..Default::default()
+    ///     };
+    /// ```
     pub proxy: Option<reqwest::Proxy>,
-    /// **Example**: Some("key1=value1; key2=value2; key3=value3".to_string())
+    /// Cookies String
+    ///
+    /// # Example
+    /// ```ignore
+    /// Some("key1=value1; key2=value2; key3=value3".to_string())
+    /// ```
     pub cookies: Option<String>,
-    pub ipv6_block: Option<String>,
-}
+    /// Custom IPv6 String
+    ///
+    /// # Example
+    /// ```ignore
+    ///     // Custom IPv6 block
+    ///     let ipv6_block = "2001:4::/48".to_string();
 
-impl Default for RequestOptions {
-    fn default() -> Self {
-        RequestOptions {
-            proxy: None,
-            cookies: None,
-            ipv6_block: None,
-        }
-    }
+    ///     let video_options = VideoOptions {
+    ///          request_options: RequestOptions {
+    ///               ipv6_block: Some(ipv6_block),
+    ///                ..Default::default()
+    ///          },
+    ///          ..Default::default()
+    ///     };
+    /// ```
+    pub ipv6_block: Option<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum VideoError {
+    /// The video not found
     #[error("The video not found")]
     VideoNotFound,
+    /// Video source empty
     #[error("Video source empty")]
     VideoSourceNotFound,
+    /// Video is private
     #[error("Video is private")]
     VideoIsPrivate,
+    /// Reqwest error
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
+    /// ReqwestMiddleware error
     #[error(transparent)]
     ReqwestMiddleware(#[from] reqwest_middleware::Error),
+    /// URL cannot parsed
     #[error(transparent)]
     URLParseError(#[from] url::ParseError),
+    /// Body cannot parsed
     #[error("Body cannot parsed")]
     BodyCannotParsed,
+    /// Format not found
     #[error("Format not found")]
     FormatNotFound,
+    /// Invalid IPv6 format
     #[error("Invalid IPv6 format")]
     InvalidIPv6Format,
+    /// Invalid IPv6 subnet
     #[error("Invalid IPv6 subnet")]
     InvalidIPv6Subnet,
+    /// M3U8 parse error
     #[error("M3U8 Parse Error: {0}")]
     M3U8ParseError(String),
+    /// URL is not playlist
     #[error("{0} is not a playlist URL")]
     IsNotPlaylist(String),
+    /// Playlist body cannot parsed
     #[error("Playlist body cannot parsed")]
     PlaylistBodyCannotParsed,
+    /// Download error
     #[error("Download Error: {0}")]
     DownloadError(String),
+    /// Encryption error
     #[error("Encryption Error: {0}")]
     EncryptionError(String),
+    /// Decryption error
     #[error("Decryption Error: {0}")]
     DecryptionError(String),
+    /// Hex encdode error
     #[error(transparent)]
     HexError(#[from] hex::FromHexError),
+    /// Child process error
     #[error("Process Error: {0}")]
     ChildProcessError(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VideoFormat {
+    /// Video format itag number
     pub itag: u64,
+    /// Video format mime type
     #[serde(rename = "mimeType")]
     pub mime_type: String,
     pub bitrate: u64,
-    pub width: Option<u64>,  // VIDEO & DASH MPD ONLY
+    /// Video format width
+    pub width: Option<u64>, // VIDEO & DASH MPD ONLY
+    /// Video format height
     pub height: Option<u64>, // VIDEO & DASH MPD ONLY
     #[serde(rename = "initRange")]
     pub init_range: Option<RangeObject>,
@@ -175,9 +227,12 @@ pub struct VideoFormat {
     pub audio_bitrate: Option<u64>, // LIVE HLS VIDEO ONLY
     #[serde(rename = "loudnessDb")]
     pub loudness_db: Option<f64>, // AUDIO ONLY
+    /// Video format URL
     pub url: String,
+    /// Video format has video or not
     #[serde(rename = "hasVideo")]
     pub has_video: bool,
+    /// Video format has audio or not
     #[serde(rename = "hasAudio")]
     pub has_audio: bool,
     pub container: Option<String>,
@@ -186,10 +241,13 @@ pub struct VideoFormat {
     pub video_codec: Option<String>,
     #[serde(rename = "audioCodec")]
     pub audio_codec: Option<String>,
+    /// Video is live or not
     #[serde(rename = "isLive")]
     pub is_live: bool,
+    /// Video format is HLS or not
     #[serde(rename = "isHLS")]
     pub is_hls: bool,
+    /// Video format is DashMPD or not
     #[serde(rename = "isDashMPD")]
     pub is_dash_mpd: bool,
 }

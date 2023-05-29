@@ -1,7 +1,7 @@
 use rusty_ytdl;
 
 #[tokio::test]
-async fn download_to_file() {
+async fn download_with_chunks() {
     use rusty_ytdl::{Video, VideoOptions, VideoQuality, VideoSearchOptions};
 
     let url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc";
@@ -14,7 +14,9 @@ async fn download_to_file() {
 
     let video = Video::new_with_options(url, video_options).unwrap();
 
-    let path = std::path::Path::new(r"test.mp4");
+    let stream = video.stream().await.unwrap();
 
-    video.download(path).await.unwrap();
+    while let Some(chunk) = stream.chunk().await.unwrap() {
+        println!("{} byte downloaded", chunk.len());
+    }
 }

@@ -14,10 +14,7 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<RelatedVideo>>
             .as_object()
             .and_then(|x| x.get("webWatchNextResponseExtensionData"))
             .and_then(|x| x.get("relatedVideoArgs"))
-            .and_then(|x| {
-                x.as_str()
-                    .and_then(|c| Some(c.split(",").collect::<Vec<&str>>()))
-            })
+            .and_then(|x| x.as_str().map(|c| c.split(',').collect::<Vec<&str>>()))
             .unwrap_or_default();
         Ok(())
     };
@@ -52,14 +49,15 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<RelatedVideo>>
             .as_object()
             .and_then(|x| {
                 x.get("compactVideoRenderer")
-                    .and_then(|c| Some(c.as_object().unwrap()))
+                    .map(|c| c.as_object().unwrap())
             })
             .unwrap_or(&fallback_value);
 
         if !details.is_empty() {
             let video = parse_related_video(details, &rvs_params);
-            if !video.is_none() {
-                videos.push(video.unwrap())
+
+            if let Some(video_some) = video {
+                videos.push(video_some)
             }
         } else {
             let autoplay = result
@@ -86,8 +84,8 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<RelatedVideo>>
                 }
 
                 let video = parse_related_video(content_details, &rvs_params);
-                if !video.is_none() {
-                    videos.push(video.unwrap())
+                if let Some(video_some) = video {
+                    videos.push(video_some)
                 }
             }
         }
@@ -98,7 +96,7 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<RelatedVideo>>
 
 pub fn parse_related_video(
     details: &serde_json::map::Map<String, serde_json::Value>,
-    rvs_params: &Vec<&str>,
+    rvs_params: &[&str],
 ) -> Option<RelatedVideo> {
     #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
     struct QueryParams {
@@ -107,9 +105,7 @@ pub fn parse_related_video(
         length_seconds: String,
     }
     let mut view_count = if details.contains_key("viewCountText") {
-        get_text(&details["viewCountText"])
-            .as_str()
-            .unwrap_or("".into())
+        get_text(&details["viewCountText"]).as_str().unwrap_or("")
     } else {
         "0"
     };
@@ -117,7 +113,7 @@ pub fn parse_related_video(
     let mut short_view_count = if details.contains_key("shortViewCountText") {
         get_text(&details["shortViewCountText"])
             .as_str()
-            .unwrap_or("".into())
+            .unwrap_or("")
             .to_string()
     } else {
         "0".to_string()
@@ -129,17 +125,16 @@ pub fn parse_related_video(
         let rvs_details_index = rvs_params
             .iter()
             .map(|x| serde_qs::from_str::<QueryParams>(x).unwrap())
-            .position(|r| r.id == String::from(details["videoId"].as_str().unwrap_or("0".into())));
+            .position(|r| r.id == *details["videoId"].as_str().unwrap_or("0"));
 
-        if rvs_details_index.is_some() {
-            let rvs_details_index = rvs_details_index.unwrap();
+        if let Some(rvs_details_index_some) = rvs_details_index {
             let rvs_params_to_short_view_count = rvs_params
-                .get(rvs_details_index)
-                .and_then(|x| Some(*x))
+                .get(rvs_details_index_some)
+                .cloned()
                 .unwrap_or("");
 
             short_view_count = serde_qs::from_str::<QueryParams>(rvs_params_to_short_view_count)
-                .and_then(|x| Ok(x.short_view_count_text))
+                .map(|x| x.short_view_count_text)
                 .unwrap_or("0".to_string())
         }
     }
@@ -148,36 +143,32 @@ pub fn parse_related_video(
         view_count
             .split(' ')
             .collect::<Vec<&str>>()
-            .get(0)
-            .and_then(|x| Some(*x))
+            .first()
+            .cloned()
             .unwrap_or("")
     } else {
         short_view_count
             .split(' ')
             .collect::<Vec<&str>>()
-            .get(0)
-            .and_then(|x| Some(*x))
+            .first()
+            .cloned()
             .unwrap_or("")
     };
 
     let is_live = details
         .get("badges")
-        .and_then(|c| {
-            Some(
-                c.as_array()
-                    .and_then(|x| {
-                        Some(
-                            x.iter()
-                                .filter(|x| {
-                                    let json = serde_json::json!(x);
-                                    json["metadataBadgeRenderer"]["label"] == "LIVE NOW"
-                                })
-                                .count()
-                                > 0,
-                        )
-                    })
-                    .unwrap_or(false),
-            )
+        .map(|c| {
+            c.as_array()
+                .map(|x| {
+                    x.iter()
+                        .filter(|x| {
+                            let json = serde_json::json!(x);
+                            json["metadataBadgeRenderer"]["label"] == "LIVE NOW"
+                        })
+                        .count()
+                        > 0
+                })
+                .unwrap_or(false)
         })
         .unwrap_or(false);
 
@@ -186,20 +177,16 @@ pub fn parse_related_video(
     let channel_id = &browse_end_point["browseId"];
     let author_user = browse_end_point
         .get("canonicalBaseUrl")
-        .and_then(|x| {
-            Some(
-                x.as_str()
-                    .and_then(|c| {
-                        Some(
-                            c.split("/")
-                                .collect::<Vec<&str>>()
-                                .last()
-                                .and_then(|c| Some(*c))
-                                .unwrap_or(""),
-                        )
-                    })
-                    .unwrap_or(""),
-            )
+        .map(|x| {
+            x.as_str()
+                .map(|c| {
+                    c.split('/')
+                        .collect::<Vec<&str>>()
+                        .last()
+                        .cloned()
+                        .unwrap_or("")
+                })
+                .unwrap_or("")
         })
         .unwrap_or("");
 
@@ -270,7 +257,7 @@ pub fn parse_related_video(
                     String::from("")
                 },
                 user_url: if !author_user.is_empty() {
-                    if author_user.starts_with("@") {
+                    if author_user.starts_with('@') {
                         format!("https://www.youtube.com/{user}", user = author_user)
                     } else {
                         String::from("")
@@ -281,50 +268,44 @@ pub fn parse_related_video(
                 thumbnails: if !details["channelThumbnail"]["thumbnails"].is_null() {
                     details["channelThumbnail"]["thumbnails"]
                         .as_array()
-                        .and_then(|f| {
-                            Some(
-                                f.iter()
-                                    .map(|x| Thumbnail {
-                                        width: x
-                                            .get("width")
-                                            .and_then(|x| {
-                                                if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
-                                                    })
-                                                } else {
-                                                    x.as_i64()
-                                                }
-                                            })
-                                            .unwrap_or(0i64)
-                                            as u64,
-                                        height: x
-                                            .get("height")
-                                            .and_then(|x| {
-                                                if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
-                                                    })
-                                                } else {
-                                                    x.as_i64()
-                                                }
-                                            })
-                                            .unwrap_or(0i64)
-                                            as u64,
-                                        url: x
-                                            .get("url")
-                                            .and_then(|x| x.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                    })
-                                    .collect::<Vec<Thumbnail>>(),
-                            )
+                        .map(|f| {
+                            f.iter()
+                                .map(|x| Thumbnail {
+                                    width: x
+                                        .get("width")
+                                        .and_then(|x| {
+                                            if x.is_string() {
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
+                                                })
+                                            } else {
+                                                x.as_i64()
+                                            }
+                                        })
+                                        .unwrap_or(0i64)
+                                        as u64,
+                                    height: x
+                                        .get("height")
+                                        .and_then(|x| {
+                                            if x.is_string() {
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
+                                                })
+                                            } else {
+                                                x.as_i64()
+                                            }
+                                        })
+                                        .unwrap_or(0i64)
+                                        as u64,
+                                    url: x
+                                        .get("url")
+                                        .and_then(|x| x.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                })
+                                .collect::<Vec<Thumbnail>>()
                         })
                         .unwrap_or(vec![])
                 } else {
@@ -343,7 +324,7 @@ pub fn parse_related_video(
         short_view_count_text: short_view_count
             .split(' ')
             .collect::<Vec<&str>>()
-            .get(0)
+            .first()
             .unwrap_or(&"")
             .to_string(),
         view_count: view_count_regex.replace_all(view_count, "").to_string(),
@@ -357,44 +338,42 @@ pub fn parse_related_video(
         thumbnails: if !details["thumbnail"]["thumbnails"].is_null() {
             details["thumbnail"]["thumbnails"]
                 .as_array()
-                .and_then(|f| {
-                    Some(
-                        f.iter()
-                            .map(|x| Thumbnail {
-                                width: x
-                                    .get("width")
-                                    .and_then(|x| {
-                                        if x.is_string() {
-                                            x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                Ok(a) => Some(a),
-                                                Err(_err) => Some(0i64),
-                                            })
-                                        } else {
-                                            x.as_i64()
-                                        }
-                                    })
-                                    .unwrap_or(0i64) as u64,
-                                height: x
-                                    .get("height")
-                                    .and_then(|x| {
-                                        if x.is_string() {
-                                            x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                Ok(a) => Some(a),
-                                                Err(_err) => Some(0i64),
-                                            })
-                                        } else {
-                                            x.as_i64()
-                                        }
-                                    })
-                                    .unwrap_or(0i64) as u64,
-                                url: x
-                                    .get("url")
-                                    .and_then(|x| x.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                            })
-                            .collect::<Vec<Thumbnail>>(),
-                    )
+                .map(|f| {
+                    f.iter()
+                        .map(|x| Thumbnail {
+                            width: x
+                                .get("width")
+                                .and_then(|x| {
+                                    if x.is_string() {
+                                        x.as_str().map(|x| match x.parse::<i64>() {
+                                            Ok(a) => a,
+                                            Err(_err) => 0i64,
+                                        })
+                                    } else {
+                                        x.as_i64()
+                                    }
+                                })
+                                .unwrap_or(0i64) as u64,
+                            height: x
+                                .get("height")
+                                .and_then(|x| {
+                                    if x.is_string() {
+                                        x.as_str().map(|x| match x.parse::<i64>() {
+                                            Ok(a) => a,
+                                            Err(_err) => 0i64,
+                                        })
+                                    } else {
+                                        x.as_i64()
+                                    }
+                                })
+                                .unwrap_or(0i64) as u64,
+                            url: x
+                                .get("url")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                        })
+                        .collect::<Vec<Thumbnail>>()
                 })
                 .unwrap_or(vec![])
         } else {
@@ -426,11 +405,7 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
         .iter()
         .find(|x| x.get("videoSecondaryInfoRenderer").is_some());
 
-    let json_result = if result_option.is_none() {
-        Some(serde_json::json!({}))
-    } else {
-        let result = result_option.unwrap();
-
+    let json_result = if let Some(result) = result_option {
         let metadata_rows = if result.get("metadataRowContainer").is_some() {
             result
                 .get("metadataRowContainer")
@@ -461,7 +436,7 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
             // println!("{}", serde_json::to_string_pretty(row).unwrap());
             if row.get("metadataRowRenderer").is_some() {
                 let title = get_text(
-                    &row.get("metadataRowRenderer")
+                    row.get("metadataRowRenderer")
                         .and_then(|x| x.get("title"))
                         .unwrap_or(&empty_serde_object),
                 )
@@ -633,6 +608,8 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
         }
 
         Some(return_object)
+    } else {
+        Some(serde_json::json!({}))
     };
 
     json_result
@@ -691,7 +668,7 @@ pub fn get_author(
         .and_then(|x| x.get("browseEndpoint"))
         .and_then(|x| x.get("browseId"))
         .and_then(|x| x.as_str())
-        .unwrap_or(&"");
+        .unwrap_or("");
     let thumbnails = video_ownder_renderer
         .get("thumbnail")
         .and_then(|x| x.get("thumbnails"))
@@ -704,9 +681,9 @@ pub fn get_author(
                 .get("width")
                 .and_then(|x| {
                     if x.is_string() {
-                        x.as_str().and_then(|x| match x.parse::<i64>() {
-                            Ok(a) => Some(a),
-                            Err(_err) => Some(0i64),
+                        x.as_str().map(|x| match x.parse::<i64>() {
+                            Ok(a) => a,
+                            Err(_err) => 0i64,
                         })
                     } else {
                         x.as_i64()
@@ -717,9 +694,9 @@ pub fn get_author(
                 .get("height")
                 .and_then(|x| {
                     if x.is_string() {
-                        x.as_str().and_then(|x| match x.parse::<i64>() {
-                            Ok(a) => Some(a),
-                            Err(_err) => Some(0i64),
+                        x.as_str().map(|x| match x.parse::<i64>() {
+                            Ok(a) => a,
+                            Err(_err) => 0i64,
                         })
                     } else {
                         x.as_i64()
@@ -738,7 +715,7 @@ pub fn get_author(
         get_text(
             video_ownder_renderer
                 .get("subscriberCountText")
-                .unwrap_or(&&zero_viewer),
+                .unwrap_or(&zero_viewer),
         )
         .as_str()
         .unwrap_or("0"),
@@ -760,7 +737,7 @@ pub fn get_author(
             .get("channelId")
             .and_then(|x| x.as_str())
             .unwrap_or({
-                if channel_id != "" {
+                if !channel_id.is_empty() {
                     channel_id
                 } else {
                     player_response
@@ -770,7 +747,7 @@ pub fn get_author(
                         .unwrap_or("")
                 }
             })
-    } else if channel_id != "" {
+    } else if !channel_id.is_empty() {
         channel_id
     } else {
         player_response
@@ -782,7 +759,7 @@ pub fn get_author(
 
     let user = if video_details
         .as_object()
-        .and_then(|x| Some(!x.is_empty()))
+        .map(|x| !x.is_empty())
         .unwrap_or(false)
     {
         video_details
@@ -790,7 +767,7 @@ pub fn get_author(
             .and_then(|x| x.as_str())
             .unwrap_or("")
             .trim()
-            .split("/")
+            .split('/')
             .collect::<Vec<&str>>()
             .last()
             .unwrap_or(&"")
@@ -803,7 +780,7 @@ pub fn get_author(
         id: id.to_string(),
         name: if video_details
             .as_object()
-            .and_then(|x| Some(!x.is_empty()))
+            .map(|x| !x.is_empty())
             .unwrap_or(false)
         {
             video_details
@@ -826,10 +803,10 @@ pub fn get_author(
                 .to_string()
         },
         user: user.clone(),
-        channel_url: format!("https://www.youtube.com/channel/{id}", id = id).to_string(),
+        channel_url: format!("https://www.youtube.com/channel/{id}", id = id),
         external_channel_url: if video_details
             .as_object()
-            .and_then(|x| Some(!x.is_empty()))
+            .map(|x| !x.is_empty())
             .unwrap_or(false)
         {
             let external_channel_id = video_details
@@ -838,9 +815,8 @@ pub fn get_author(
                 .unwrap_or("")
                 .trim();
             let mut return_string = String::from("");
-            if external_channel_id != "" {
-                return_string =
-                    format!("https://www.youtube.com/channel/{}", external_channel_id).to_string();
+            if !external_channel_id.is_empty() {
+                return_string = format!("https://www.youtube.com/channel/{}", external_channel_id);
             }
             return_string
         } else {
@@ -879,7 +855,7 @@ pub fn get_likes(info: &serde_json::Value) -> i32 {
 
             contents
                 .as_array()
-                .and_then(|c| Some(c.get(info_renderer_position)))
+                .map(|c| c.get(info_renderer_position))
                 .unwrap_or(Some(&serde_empty_object))
         })
         .unwrap_or(&serde_empty_object);
@@ -946,7 +922,7 @@ pub fn get_dislikes(info: &serde_json::Value) -> i32 {
 
             contents
                 .as_array()
-                .and_then(|c| Some(c.get(info_renderer_position)))
+                .map(|c| c.get(info_renderer_position))
                 .unwrap_or(Some(&serde_empty_object))
         })
         .unwrap_or(&serde_empty_object);
@@ -1002,7 +978,7 @@ pub fn get_storyboards(info: &serde_json::Value) -> Option<Vec<StoryBoard>> {
         return Some(vec![]);
     };
 
-    let mut parts = parts.unwrap_or("").split("|").collect::<Vec<&str>>();
+    let mut parts = parts.unwrap_or("").split('|').collect::<Vec<&str>>();
 
     let mut url = url::Url::parse(parts.remove(0))
         .unwrap_or(url::Url::parse("https://i.ytimg.com/").unwrap());
@@ -1012,7 +988,7 @@ pub fn get_storyboards(info: &serde_json::Value) -> Option<Vec<StoryBoard>> {
             .enumerate()
             .map(|(i, part)| {
                 let part_split_vec = part.split('#').collect::<Vec<&str>>();
-                let thumbnail_width = part_split_vec.get(0).unwrap_or(&"0");
+                let thumbnail_width = part_split_vec.first().unwrap_or(&"0");
                 let thumbnail_height = part_split_vec.get(1).unwrap_or(&"0");
                 let thumbnail_count = part_split_vec.get(2).unwrap_or(&"0");
                 let columns = part_split_vec.get(3).unwrap_or(&"0");
@@ -1023,26 +999,24 @@ pub fn get_storyboards(info: &serde_json::Value) -> Option<Vec<StoryBoard>> {
 
                 url.query_pairs_mut().append_pair("sigh", sigh);
 
-                let thumbnail_count_parsed =
-                    i32::from_str_radix(thumbnail_count, 10).unwrap_or(0i32);
-                let columns_parsed = i32::from_str_radix(columns, 10).unwrap_or(0i32);
-                let rows_parsed = i32::from_str_radix(rows, 10).unwrap_or(0i32);
+                let thumbnail_count_parsed = thumbnail_count.parse::<i32>().unwrap_or(0i32);
+                let columns_parsed = columns.parse::<i32>().unwrap_or(0i32);
+                let rows_parsed = rows.parse::<i32>().unwrap_or(0i32);
 
                 let storyboard_count_ceiled =
                     thumbnail_count_parsed / (columns_parsed * rows_parsed);
 
-                let template_url = String::from(
-                    url.as_str()
-                        .replace("$L", i.to_string().as_str())
-                        .replace("$N", name_replacement),
-                );
+                let template_url = url
+                    .as_str()
+                    .replace("$L", i.to_string().as_str())
+                    .replace("$N", name_replacement);
 
                 StoryBoard {
                     template_url,
-                    thumbnail_width: i32::from_str_radix(thumbnail_width, 10).unwrap_or(0i32),
-                    thumbnail_height: i32::from_str_radix(thumbnail_height, 10).unwrap_or(0i32),
+                    thumbnail_width: thumbnail_width.parse::<i32>().unwrap_or(0i32),
+                    thumbnail_height: thumbnail_height.parse::<i32>().unwrap_or(0i32),
                     thumbnail_count: thumbnail_count_parsed,
-                    interval: i32::from_str_radix(interval, 10).unwrap_or(0i32),
+                    interval: interval.parse::<i32>().unwrap_or(0i32),
                     columns: columns_parsed,
                     rows: rows_parsed,
                     storyboard_count: storyboard_count_ceiled,
@@ -1078,13 +1052,7 @@ pub fn get_chapters(info: &serde_json::Value) -> Option<Vec<Chapter>> {
         .position(|x| {
             x.get("value").is_some()
                 && x.get("value")
-                    .and_then(|c| {
-                        Some(
-                            c.get("chapters")
-                                .and_then(|d| Some(d.is_array()))
-                                .unwrap_or(false),
-                        )
-                    })
+                    .map(|c| c.get("chapters").map(|d| d.is_array()).unwrap_or(false))
                     .unwrap_or(false)
         })
         .unwrap_or(usize::MAX);
@@ -1092,7 +1060,7 @@ pub fn get_chapters(info: &serde_json::Value) -> Option<Vec<Chapter>> {
     let marker = markers_map
         .get(marker_index)
         .and_then(|x| x.as_object())
-        .unwrap_or(&serde_empty_object.as_object().unwrap());
+        .unwrap_or(serde_empty_object.as_object().unwrap());
 
     if marker.is_empty() {
         return Some(vec![]);

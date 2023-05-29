@@ -47,7 +47,7 @@ impl NonLiveStream {
         } else {
             let client = reqwest::Client::builder()
                 .build()
-                .map_err(|op| VideoError::Reqwest(op))?;
+                .map_err(VideoError::Reqwest)?;
 
             let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
                 .retry_bounds(
@@ -123,7 +123,7 @@ impl Stream for NonLiveStream {
 
         let mut buf: Vec<u8> = vec![];
 
-        while let Some(chunk) = response.chunk().await.map_err(|e| VideoError::Reqwest(e))? {
+        while let Some(chunk) = response.chunk().await.map_err(VideoError::Reqwest)? {
             let chunk = chunk.to_vec();
             buf.extend(chunk.iter());
         }
@@ -161,7 +161,7 @@ impl LiveStream {
         } else {
             let client = reqwest::Client::builder()
                 .build()
-                .map_err(|op| VideoError::Reqwest(op))?;
+                .map_err(VideoError::Reqwest)?;
 
             let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
                 .retry_bounds(
@@ -299,7 +299,7 @@ impl Stream for LiveStream {
         let segments = self.segments().await;
 
         // if stream end and no segments left end it
-        if self.is_end().await && segments.len() == 0 {
+        if self.is_end().await && segments.is_empty() {
             return Ok(None);
         }
 
@@ -314,7 +314,7 @@ impl Stream for LiveStream {
         let sleep_time = current_time - self.last_refresh().await;
 
         // Sleep until to wait new segments uploaded to get new segments
-        if sleep_time < (live_seconds as u128) && segments.len() == 0 && !self.is_end().await {
+        if sleep_time < live_seconds && segments.is_empty() && !self.is_end().await {
             tokio::time::sleep_until(
                 tokio::time::Instant::now()
                     + Duration::from_millis((live_seconds - sleep_time) as u64),
@@ -329,15 +329,13 @@ impl Stream for LiveStream {
             .as_millis();
 
         // if last refresh bigger than live_seconds refresh playlist
-        if current_time - self.last_refresh().await >= (live_seconds as u128)
-            && !self.is_end().await
-        {
+        if current_time - self.last_refresh().await >= live_seconds && !self.is_end().await {
             self.refresh_playlist().await?;
         }
 
-        // cannot get ant segments return empty buffer array
+        // cannot get any segments return empty buffer array
         let segments = self.segments().await;
-        if segments.len() == 0 {
+        if segments.is_empty() {
             return Ok(Some(vec![]));
         }
 
@@ -360,7 +358,7 @@ impl Stream for LiveStream {
 
         let mut buf: Vec<u8> = vec![];
 
-        while let Some(chunk) = response.chunk().await.map_err(|e| VideoError::Reqwest(e))? {
+        while let Some(chunk) = response.chunk().await.map_err(VideoError::Reqwest)? {
             let chunk = chunk.to_vec();
             buf.extend(chunk.iter());
         }

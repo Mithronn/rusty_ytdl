@@ -12,14 +12,25 @@ use serde::Serialize;
 pub struct YouTube(AsyncYouTube);
 
 impl YouTube {
+    /// Create new YouTube search struct with default [`RequestOptions`]
     pub fn new() -> Result<Self, VideoError> {
         Ok(Self(AsyncYouTube::new()?))
     }
 
+    /// Create new YouTube search struct with custom [`RequestOptions`]
     pub fn new_with_options(request_options: &RequestOptions) -> Result<Self, VideoError> {
-        Ok(Self(AsyncYouTube::new_with_options(&request_options)?))
+        Ok(Self(AsyncYouTube::new_with_options(request_options)?))
     }
 
+    /// Search with spesific `query`. If nothing found, its return empty [`Vec<SearchResult>`]
+    /// # Example
+    /// ```
+    ///     let youtube = YouTube::new().unwrap();
+    ///
+    ///     let res = youtube.search("i know your ways", None);
+    ///
+    ///     println!("{res:#?}");
+    /// ```
     pub fn search(
         &self,
         query: impl Into<String>,
@@ -28,6 +39,7 @@ impl YouTube {
         Ok(block_async!(self.0.search(query, search_options))?)
     }
 
+    /// Classic search function but only get first [`SearchResult`] item. `SearchOptions.limit` not use in request its will be always `1`
     pub fn search_one(
         &self,
         query: impl Into<String>,

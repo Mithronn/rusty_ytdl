@@ -15,14 +15,14 @@ use crate::{
 
 pub use crate::structs::RequestOptions;
 
-const DEFAULT_INNERTUBE_KEY: &'static str = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
-const DEFAULT_CLIENT_VERSOIN: &'static str = "2.20230331.00.00";
-const SAFE_SEARCH_COOKIE: &'static str = "PREF=f2=8000000";
+const DEFAULT_INNERTUBE_KEY: &str = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+const DEFAULT_CLIENT_VERSOIN: &str = "2.20230331.00.00";
+const SAFE_SEARCH_COOKIE: &str = "PREF=f2=8000000";
 
-const PLAYLIST_ID: Lazy<Regex> =
+static PLAYLIST_ID: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(PL|FL|UU|LL|RD|OL)[a-zA-Z0-9-_]{16,41}").unwrap());
 
-const ALBUM_REGEX: Lazy<Regex> =
+static ALBUM_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(RDC|O)LAK5uy_[a-zA-Z0-9-_]{33}").unwrap());
 
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
@@ -40,7 +40,7 @@ impl YouTube {
     pub fn new() -> Result<Self, VideoError> {
         let client = reqwest::Client::builder()
             .build()
-            .map_err(|op| VideoError::Reqwest(op))?;
+            .map_err(VideoError::Reqwest)?;
 
         let client = reqwest_middleware::ClientBuilder::new(client).build();
 
@@ -76,7 +76,7 @@ impl YouTube {
             client = client.cookie_provider(Arc::new(jar));
         }
 
-        let client = client.build().map_err(|op| VideoError::Reqwest(op))?;
+        let client = client.build().map_err(VideoError::Reqwest)?;
 
         let client = reqwest_middleware::ClientBuilder::new(client).build();
 
@@ -87,21 +87,27 @@ impl YouTube {
     }
 
     /// Search with spesific `query`. If nothing found, its return empty [`Vec<SearchResult>`]
+    /// # Example
+    /// ```ignore
+    ///     let youtube = YouTube::new().unwrap();
+    ///
+    ///     let res = youtube.search("i know your ways", None).await;
+    ///
+    ///     println!("{res:#?}");
+    /// ```
     pub async fn search(
         &self,
         query: impl Into<String>,
         search_options: Option<&SearchOptions>,
     ) -> Result<Vec<SearchResult>, VideoError> {
-        let options: &SearchOptions;
         let default_options = SearchOptions::default();
 
         // if SearchOptions is None get default
-        if search_options.is_none() {
-            options = &default_options;
+        let options: &SearchOptions = if search_options.is_none() {
+            &default_options
         } else {
-            options = search_options.unwrap();
-            drop(default_options);
-        }
+            search_options.unwrap()
+        };
 
         let query: String = query.into();
         let filter = filter_string(&options.search_type);
@@ -112,7 +118,7 @@ impl YouTube {
             &self.client,
             self.innertube_key().await,
             "/search",
-            &options,
+            options,
             &RequestFuncOptions {
                 query: query.clone(),
                 filter: if !filter.trim().is_empty() {
@@ -138,7 +144,7 @@ impl YouTube {
                 &self.client,
                 &res["contents"]["twoColumnSearchResultsRenderer"]["primaryContents"]
                     ["sectionListRenderer"]["contents"][0]["itemSectionRenderer"]["contents"],
-                &options,
+                options,
             ));
         }
 
@@ -166,7 +172,7 @@ impl YouTube {
 
         let body = get_html(&self.client, url, Some(&headers)).await?;
 
-        Ok(parse_search_result(&self.client, body, &options))
+        Ok(parse_search_result(&self.client, body, options))
     }
 
     /// Classic search function but only get first [`SearchResult`] item. `SearchOptions.limit` not use in request its will be always `1`
@@ -197,14 +203,14 @@ impl YouTube {
     }
 
     async fn innertube_key(&self) -> String {
-        let innertube_cache = self.innertube_cache.borrow();
-        if innertube_cache.is_some() {
-            return innertube_cache.as_ref().unwrap().to_string();
+        {
+            let innertube_cache = self.innertube_cache.borrow();
+            if innertube_cache.is_some() {
+                return innertube_cache.as_ref().unwrap().to_string();
+            }
         }
 
-        drop(innertube_cache);
-
-        return self.fetch_inner_tube_key().await;
+        self.fetch_inner_tube_key().await
     }
 
     async fn fetch_inner_tube_key(&self) -> String {
@@ -221,10 +227,10 @@ impl YouTube {
 
         let response = response.unwrap();
 
-        let result = get_api_key(&response);
+        let result = get_api_key(response);
 
         *self.innertube_cache.borrow_mut() = Some(result.clone());
-        return result;
+        result
     }
 }
 
@@ -312,9 +318,9 @@ impl Video {
 
         let default_embed_options = EmbedOptions::default();
 
-        let options = if options.is_some() {
+        let options = if let Some(some_options) = options {
             drop(default_embed_options);
-            options.unwrap()
+            some_options
         } else {
             &default_embed_options
         };
@@ -356,9 +362,9 @@ impl Video {
         }
 
         let src = url.to_string();
-        return Some(format!(
+        Some(format!(
             r#"<iframe width="{width}" height="{height}" src="{src}" title="{title}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>"#
-        ));
+        ))
     }
 
     /// Get YouTube embed URL. If [`Video`] id is empty, this function return [`None`]
@@ -452,7 +458,7 @@ impl Playlist {
         if options
             .request_options
             .as_ref()
-            .and_then(|x| Some(x.proxy.is_some()))
+            .map(|x| x.proxy.is_some())
             .unwrap_or(false)
         {
             let proxy = options
@@ -469,7 +475,7 @@ impl Playlist {
         if options
             .request_options
             .as_ref()
-            .and_then(|x| Some(x.ipv6_block.is_some()))
+            .map(|x| x.ipv6_block.is_some())
             .unwrap_or(false)
         {
             let ipv6 = options
@@ -486,7 +492,7 @@ impl Playlist {
         if options
             .request_options
             .as_ref()
-            .and_then(|x| Some(x.cookies.is_some()))
+            .map(|x| x.cookies.is_some())
             .unwrap_or(false)
         {
             let cookie = options
@@ -504,7 +510,7 @@ impl Playlist {
             client = client.cookie_provider(Arc::new(jar));
         }
 
-        let client = client.build().map_err(|op| VideoError::Reqwest(op))?;
+        let client = client.build().map_err(VideoError::Reqwest)?;
         let client = reqwest_middleware::ClientBuilder::new(client).build();
 
         let html_first = get_html(
@@ -522,8 +528,7 @@ impl Playlist {
                 .select(&scripts_selector)
                 .filter(|x| x.inner_html().contains("var ytInitialData ="))
                 .map(|x| x.inner_html().replace("var ytInitialData =", ""))
-                .into_iter()
-                .nth(0)
+                .next()
                 .unwrap_or(String::from(""))
                 .trim()
                 .to_string();
@@ -546,7 +551,7 @@ impl Playlist {
 
             // if contents found try to format values
             if !contents.is_null() && !playlist_primary_data.is_null() {
-                let videos = Self::get_playlist_videos(&contents, Some(options.limit));
+                let videos = Self::get_playlist_videos(contents, Some(options.limit));
 
                 let videos_length = videos.len();
                 let mut playlist = Playlist {
@@ -569,7 +574,6 @@ impl Playlist {
                                 ["watchEndpoint"]["playlistId"]
                                 .as_str()
                                 .unwrap_or("")
-                                .to_string()
                         )
                     } else {
                         String::from("")
@@ -621,9 +625,9 @@ impl Playlist {
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                    Ok(a) => Some(a),
-                                                    Err(_err) => Some(0i64),
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
                                                 })
                                             } else {
                                                 x.as_i64()
@@ -635,9 +639,9 @@ impl Playlist {
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                    Ok(a) => Some(a),
-                                                    Err(_err) => Some(0i64),
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
                                                 })
                                             } else {
                                                 x.as_i64()
@@ -672,9 +676,9 @@ impl Playlist {
                                     .get("width")
                                     .and_then(|x| {
                                         if x.is_string() {
-                                            x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                Ok(a) => Some(a),
-                                                Err(_err) => Some(0i64),
+                                            x.as_str().map(|x| match x.parse::<i64>() {
+                                                Ok(a) => a,
+                                                Err(_err) => 0i64,
                                             })
                                         } else {
                                             x.as_i64()
@@ -685,9 +689,9 @@ impl Playlist {
                                     .get("height")
                                     .and_then(|x| {
                                         if x.is_string() {
-                                            x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                Ok(a) => Some(a),
-                                                Err(_err) => Some(0i64),
+                                            x.as_str().map(|x| match x.parse::<i64>() {
+                                                Ok(a) => a,
+                                                Err(_err) => 0i64,
                                             })
                                         } else {
                                             x.as_i64()
@@ -725,27 +729,24 @@ impl Playlist {
                             .iter()
                             .find(|x| {
                                 if x["runs"].is_array() {
-                                    x["runs"]
-                                        .as_array()
-                                        .unwrap()
-                                        .iter()
-                                        .find(|c| {
-                                            c["text"]
-                                                .as_str()
-                                                .unwrap_or("")
-                                                .to_lowercase()
-                                                .contains("last update")
-                                        })
-                                        .is_some()
+                                    x["runs"].as_array().unwrap().iter().any(|c| {
+                                        c["text"]
+                                            .as_str()
+                                            .unwrap_or("")
+                                            .to_lowercase()
+                                            .contains("last update")
+                                    })
                                 } else {
                                     false
                                 }
                             })
                             .and_then(|x| {
                                 if x["runs"].is_array() {
-                                    x["runs"].as_array().unwrap().last().and_then(|x| {
-                                        Some(x["text"].as_str().unwrap_or("").to_string())
-                                    })
+                                    x["runs"]
+                                        .as_array()
+                                        .unwrap()
+                                        .last()
+                                        .map(|x| x["text"].as_str().unwrap_or("").to_string())
                                 } else {
                                     None
                                 }
@@ -784,7 +785,7 @@ impl Playlist {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// let youtube = YouTube::new().unwrap();
     ///
     /// let res = youtube
@@ -814,7 +815,7 @@ impl Playlist {
             || self
                 .continuation
                 .as_ref()
-                .and_then(|x| Some(x.token.is_none()))
+                .map(|x| x.token.is_none())
                 .unwrap_or(true)
         {
             return Ok(vec![]);
@@ -916,7 +917,7 @@ impl Playlist {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// let youtube = YouTube::new().unwrap();
     ///
     /// let res = youtube
@@ -971,7 +972,7 @@ impl Playlist {
             }
 
             // if any not new data finish the job
-            if chunk.unwrap().len() == 0 {
+            if chunk.unwrap().is_empty() {
                 break;
             }
         }
@@ -996,14 +997,14 @@ impl Playlist {
                 .captures(&url_or_id)
                 .unwrap()
                 .get(0)
-                .and_then(|x| Some(x.as_str()))
+                .map(|x| x.as_str())
                 .unwrap_or("")
         } else if ALBUM_REGEX.captures(&url_or_id).is_some() {
             ALBUM_REGEX
                 .captures(&url_or_id)
                 .unwrap()
                 .get(0)
-                .and_then(|x| Some(x.as_str()))
+                .map(|x| x.as_str())
                 .unwrap_or("")
         } else {
             ""
@@ -1048,7 +1049,7 @@ impl Playlist {
             videos.push(Video {
                 id: video["videoId"].as_str().unwrap_or("").to_string(),
                 url: if video["videoId"].is_string() {
-                    format!("{}", video["videoId"].as_str().unwrap_or(""))
+                    video["videoId"].as_str().unwrap_or("").to_string()
                 } else {
                     String::from("")
                 },
@@ -1080,9 +1081,9 @@ impl Playlist {
                                 .get("width")
                                 .and_then(|x| {
                                     if x.is_string() {
-                                        x.as_str().and_then(|x| match x.parse::<i64>() {
-                                            Ok(a) => Some(a),
-                                            Err(_err) => Some(0i64),
+                                        x.as_str().map(|x| match x.parse::<i64>() {
+                                            Ok(a) => a,
+                                            Err(_err) => 0i64,
                                         })
                                     } else {
                                         x.as_i64()
@@ -1093,9 +1094,9 @@ impl Playlist {
                                 .get("height")
                                 .and_then(|x| {
                                     if x.is_string() {
-                                        x.as_str().and_then(|x| match x.parse::<i64>() {
-                                            Ok(a) => Some(a),
-                                            Err(_err) => Some(0i64),
+                                        x.as_str().map(|x| match x.parse::<i64>() {
+                                            Ok(a) => a,
+                                            Err(_err) => 0i64,
                                         })
                                     } else {
                                         x.as_i64()
@@ -1167,22 +1168,22 @@ impl Playlist {
 
         let continuation_token = context.as_array().unwrap().iter().find(|x| {
             x.as_object()
-                .and_then(|x| Some(x.contains_key("continuationItemRenderer")))
+                .map(|x| x.contains_key("continuationItemRenderer"))
                 .unwrap_or(false)
         });
 
-        if continuation_token.is_none() {
-            return None;
+        if let Some(token) = continuation_token {
+            let continuation_token = &token["continuationItemRenderer"]["continuationEndpoint"]
+                ["continuationCommand"]["token"];
+
+            if continuation_token.is_string() {
+                return Some(continuation_token.as_str().unwrap_or("").to_string());
+            }
+
+            None
+        } else {
+            None
         }
-
-        let continuation_token = &continuation_token.unwrap()["continuationItemRenderer"]
-            ["continuationEndpoint"]["continuationCommand"]["token"];
-
-        if continuation_token.is_string() {
-            return Some(continuation_token.as_str().unwrap_or("").to_string());
-        }
-
-        None
     }
 }
 
@@ -1222,9 +1223,9 @@ fn get_client_version(html: impl Into<String>) -> String {
 
     return match first_collect_for_client_version.get(1) {
         Some(x) => {
-            let second_collect = x.split(r#"""#).collect::<Vec<&str>>();
-            if second_collect.len() >= 1 {
-                let inner_tube = second_collect.get(0).unwrap().to_string();
+            let second_collect = x.split('"').collect::<Vec<&str>>();
+            if !second_collect.is_empty() {
+                let inner_tube = second_collect.first().unwrap().to_string();
                 // println!("INNERTUBE_CONTEXT_CLIENT_VERSION => {inner_tube}");
 
                 inner_tube
@@ -1235,9 +1236,9 @@ fn get_client_version(html: impl Into<String>) -> String {
 
                 match third_collect.get(1) {
                     Some(c) => {
-                        let forth_collect = c.split(r#"""#).collect::<Vec<&str>>();
-                        if forth_collect.len() >= 1 {
-                            let inner_tube = forth_collect.get(0).unwrap().to_string();
+                        let forth_collect = c.split('"').collect::<Vec<&str>>();
+                        if !forth_collect.is_empty() {
+                            let inner_tube = forth_collect.first().unwrap().to_string();
                             // println!("innertube_context_client_version => {inner_tube}");
                             inner_tube
                         } else {
@@ -1255,9 +1256,9 @@ fn get_client_version(html: impl Into<String>) -> String {
 
             match third_collect.get(1) {
                 Some(c) => {
-                    let forth_collect = c.split(r#"""#).collect::<Vec<&str>>();
-                    if forth_collect.len() >= 1 {
-                        let inner_tube = forth_collect.get(0).unwrap().to_string();
+                    let forth_collect = c.split('"').collect::<Vec<&str>>();
+                    if !forth_collect.is_empty() {
+                        let inner_tube = forth_collect.first().unwrap().to_string();
                         // println!("innertube_context_client_version => {inner_tube}");
                         inner_tube
                     } else {
@@ -1279,9 +1280,9 @@ fn get_api_key(html: impl Into<String>) -> String {
 
     return match first_collect.get(1) {
         Some(x) => {
-            let second_collect = x.split(r#"""#).collect::<Vec<&str>>();
-            if second_collect.len() >= 1 {
-                let inner_tube = second_collect.get(0).unwrap().to_string();
+            let second_collect = x.split('"').collect::<Vec<&str>>();
+            if !second_collect.is_empty() {
+                let inner_tube = second_collect.first().unwrap().to_string();
                 // println!("INNERTUBE_API_KEY => {inner_tube}");
                 inner_tube
             } else {
@@ -1289,9 +1290,9 @@ fn get_api_key(html: impl Into<String>) -> String {
 
                 match third_collect.get(1) {
                     Some(c) => {
-                        let forth_collect = c.split(r#"""#).collect::<Vec<&str>>();
-                        if forth_collect.len() >= 1 {
-                            let inner_tube = forth_collect.get(0).unwrap().to_string();
+                        let forth_collect = c.split('"').collect::<Vec<&str>>();
+                        if !forth_collect.is_empty() {
+                            let inner_tube = forth_collect.first().unwrap().to_string();
                             // println!("innertubeApiKey => {inner_tube}");
 
                             inner_tube
@@ -1308,9 +1309,9 @@ fn get_api_key(html: impl Into<String>) -> String {
 
             match third_collect.get(1) {
                 Some(c) => {
-                    let forth_collect = c.split(r#"""#).collect::<Vec<&str>>();
-                    if forth_collect.len() >= 1 {
-                        let inner_tube = forth_collect.get(0).unwrap().to_string();
+                    let forth_collect = c.split('"').collect::<Vec<&str>>();
+                    if !forth_collect.is_empty() {
+                        let inner_tube = forth_collect.first().unwrap().to_string();
                         // println!("innertubeApiKey => {inner_tube}");
                         inner_tube
                     } else {
@@ -1403,7 +1404,7 @@ async fn make_request(
         return serde_json::Value::Null;
     }
 
-    return res.unwrap();
+    res.unwrap()
 }
 
 fn parse_search_result(
@@ -1420,8 +1421,7 @@ fn parse_search_result(
             .select(&scripts_selector)
             .filter(|x| x.inner_html().contains("var ytInitialData ="))
             .map(|x| x.inner_html().replace("var ytInitialData =", ""))
-            .into_iter()
-            .nth(0)
+            .next()
             .unwrap_or(String::from(""))
             .trim()
             .to_string();
@@ -1440,7 +1440,7 @@ fn parse_search_result(
 
         // if contents found try to format values
         if !contents.is_null() {
-            return format_search_result(&client, contents, &options);
+            return format_search_result(client, contents, options);
         }
     }
 
@@ -1468,19 +1468,19 @@ fn format_search_result(
             let match_statemant = if options.search_type == SearchType::All {
                 if data
                     .as_object()
-                    .and_then(|x| Some(x.contains_key("videoRenderer")))
+                    .map(|x| x.contains_key("videoRenderer"))
                     .unwrap_or(false)
                 {
                     &SearchType::Video
                 } else if data
                     .as_object()
-                    .and_then(|x| Some(x.contains_key("channelRenderer")))
+                    .map(|x| x.contains_key("channelRenderer"))
                     .unwrap_or(false)
                 {
                     &SearchType::Channel
                 } else if data
                     .as_object()
-                    .and_then(|x| Some(x.contains_key("playlistRenderer")))
+                    .map(|x| x.contains_key("playlistRenderer"))
                     .unwrap_or(false)
                 {
                     &SearchType::Playlist
@@ -1522,13 +1522,11 @@ fn format_search_result(
                         {
                             data["videoRenderer"]["descriptionSnippet"]["runs"]
                                 .as_array()
-                                .and_then(|x| {
-                                    Some(
-                                        x.iter()
-                                            .map(|c| c["text"].as_str().unwrap_or(""))
-                                            .collect::<Vec<&str>>()
-                                            .join(""),
-                                    )
+                                .map(|x| {
+                                    x.iter()
+                                        .map(|c| c["text"].as_str().unwrap_or(""))
+                                        .collect::<Vec<&str>>()
+                                        .join("")
                                 })
                                 .unwrap_or("".to_string())
                         } else if !data["videoRenderer"]["detailedMetadataSnippets"][0]
@@ -1538,13 +1536,11 @@ fn format_search_result(
                             data["videoRenderer"]["detailedMetadataSnippets"][0]["snippetText"]
                                 ["runs"]
                                 .as_array()
-                                .and_then(|x| {
-                                    Some(
-                                        x.iter()
-                                            .map(|c| c["text"].as_str().unwrap_or(""))
-                                            .collect::<Vec<&str>>()
-                                            .join(""),
-                                    )
+                                .map(|x| {
+                                    x.iter()
+                                        .map(|c| c["text"].as_str().unwrap_or(""))
+                                        .collect::<Vec<&str>>()
+                                        .join("")
                                 })
                                 .unwrap_or("".to_string())
                         } else {
@@ -1579,9 +1575,9 @@ fn format_search_result(
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                    Ok(a) => Some(a),
-                                                    Err(_err) => Some(0i64),
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
                                                 })
                                             } else {
                                                 x.as_i64()
@@ -1593,9 +1589,9 @@ fn format_search_result(
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                    Ok(a) => Some(a),
-                                                    Err(_err) => Some(0i64),
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
                                                 })
                                             } else {
                                                 x.as_i64()
@@ -1663,11 +1659,9 @@ fn format_search_result(
                                             .get("width")
                                             .and_then(|x| {
                                                 if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
+                                                    x.as_str().map(|x| match x.parse::<i64>() {
+                                                        Ok(a) => a,
+                                                        Err(_err) => 0i64,
                                                     })
                                                 } else {
                                                     x.as_i64()
@@ -1679,11 +1673,9 @@ fn format_search_result(
                                             .get("height")
                                             .and_then(|x| {
                                                 if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
+                                                    x.as_str().map(|x| match x.parse::<i64>() {
+                                                        Ok(a) => a,
+                                                        Err(_err) => 0i64,
                                                     })
                                                 } else {
                                                     x.as_i64()
@@ -1712,11 +1704,9 @@ fn format_search_result(
                                             .get("width")
                                             .and_then(|x| {
                                                 if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
+                                                    x.as_str().map(|x| match x.parse::<i64>() {
+                                                        Ok(a) => a,
+                                                        Err(_err) => 0i64,
                                                     })
                                                 } else {
                                                     x.as_i64()
@@ -1728,11 +1718,9 @@ fn format_search_result(
                                             .get("height")
                                             .and_then(|x| {
                                                 if x.is_string() {
-                                                    x.as_str().and_then(|x| {
-                                                        match x.parse::<i64>() {
-                                                            Ok(a) => Some(a),
-                                                            Err(_err) => Some(0i64),
-                                                        }
+                                                    x.as_str().map(|x| match x.parse::<i64>() {
+                                                        Ok(a) => a,
+                                                        Err(_err) => 0i64,
                                                     })
                                                 } else {
                                                     x.as_i64()
@@ -1841,9 +1829,9 @@ fn format_search_result(
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                    Ok(a) => Some(a),
-                                                    Err(_err) => Some(0i64),
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
                                                 })
                                             } else {
                                                 x.as_i64()
@@ -1855,9 +1843,9 @@ fn format_search_result(
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                    Ok(a) => Some(a),
-                                                    Err(_err) => Some(0i64),
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
                                                 })
                                             } else {
                                                 x.as_i64()
@@ -2000,9 +1988,9 @@ fn format_search_result(
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                    Ok(a) => Some(a),
-                                                    Err(_err) => Some(0i64),
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
                                                 })
                                             } else {
                                                 x.as_i64()
@@ -2014,9 +2002,9 @@ fn format_search_result(
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                    Ok(a) => Some(a),
-                                                    Err(_err) => Some(0i64),
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
                                                 })
                                             } else {
                                                 x.as_i64()
@@ -2045,9 +2033,9 @@ fn format_search_result(
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                    Ok(a) => Some(a),
-                                                    Err(_err) => Some(0i64),
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
                                                 })
                                             } else {
                                                 x.as_i64()
@@ -2059,9 +2047,9 @@ fn format_search_result(
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().and_then(|x| match x.parse::<i64>() {
-                                                    Ok(a) => Some(a),
-                                                    Err(_err) => Some(0i64),
+                                                x.as_str().map(|x| match x.parse::<i64>() {
+                                                    Ok(a) => a,
+                                                    Err(_err) => 0i64,
                                                 })
                                             } else {
                                                 x.as_i64()

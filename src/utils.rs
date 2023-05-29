@@ -24,12 +24,11 @@ pub fn get_cver(info: &serde_json::Value) -> &str {
                 .iter()
                 .position(|r| {
                     r.as_object()
-                        .and_then(|c| Some(c.get("service").unwrap().as_str().unwrap() == "CSI"))
-                        .unwrap()
+                        .map(|c| c.get("service").unwrap().as_str().unwrap() == "CSI")
+                        .unwrap_or(false)
                 })
                 .unwrap();
-            x.into_iter()
-                .nth(index)
+            x.get(index)
                 .unwrap()
                 .as_object()
                 .and_then(|x| {
@@ -38,15 +37,12 @@ pub fn get_cver(info: &serde_json::Value) -> &str {
                         .iter()
                         .position(|r| {
                             r.as_object()
-                                .and_then(|c| {
-                                    Some(c.get("key").unwrap().as_str().unwrap() == "cver")
-                                })
-                                .unwrap()
+                                .map(|c| c.get("key").unwrap().as_str().unwrap() == "cver")
+                                .unwrap_or(false)
                         })
                         .unwrap();
                     second_array
-                        .into_iter()
-                        .nth(second_index)
+                        .get(second_index)
                         .unwrap()
                         .as_object()
                         .unwrap()
@@ -87,9 +83,8 @@ pub fn parse_video_formats(
             .as_array()?;
         let mut formats = [&formats[..], &adaptive_formats[..]].concat();
 
-        for i in 0..formats.len() {
-            let format = &mut formats[i];
-            format.as_object_mut().and_then(|x| {
+        for format in &mut formats {
+            format.as_object_mut().map(|x| {
                 let new_url = set_download_url(&mut serde_json::json!(x), format_functions.clone());
 
                 // Delete unnecessary cipher, signatureCipher
@@ -101,7 +96,7 @@ pub fn parse_video_formats(
                 // Add Video metaData
                 add_format_meta(x);
 
-                Some(x)
+                x
             });
         }
 
@@ -144,11 +139,11 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
             .get("mimeType")
             .and_then(|x| x.as_str())
             .unwrap_or("")
-            .split(";")
+            .split(';')
             .collect::<Vec<&str>>()
-            .get(0)
+            .first()
             .unwrap_or(&"")
-            .split("/")
+            .split('/')
             .collect::<Vec<&str>>();
 
         let container_value = container_value_arr.get(1).unwrap_or(&"");
@@ -182,10 +177,7 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
         .get("hasVideo")
         .and_then(|x| x.as_bool())
         .unwrap_or(false)
-        && format
-            .get("codecs")
-            .and_then(|x| Some(!x.is_null()))
-            .unwrap_or(false)
+        && format.get("codecs").map(|x| !x.is_null()).unwrap_or(false)
     {
         let video_codec_value = format
             .get("codecs")
@@ -210,10 +202,7 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
         .get("hasAudio")
         .and_then(|x| x.as_bool())
         .unwrap_or(false)
-        && format
-            .get("codecs")
-            .and_then(|x| Some(!x.is_null()))
-            .unwrap_or(false)
+        && format.get("codecs").map(|x| !x.is_null()).unwrap_or(false)
     {
         let audio_codec_value_arr = format
             .get("codecs")
@@ -276,14 +265,15 @@ pub fn filter_formats(formats: &mut Vec<VideoFormat>, options: &VideoSearchOptio
     }
 }
 
+/// Try to get format with [`VideoOptions`] filter
 pub fn choose_format<'a>(
-    formats: &'a Vec<VideoFormat>,
+    formats: &'a [VideoFormat],
     options: &'a VideoOptions,
 ) -> Result<VideoFormat, VideoError> {
     let filter = &options.filter;
-    let mut formats = formats.clone();
+    let mut formats = formats.to_owned();
 
-    filter_formats(&mut formats, &filter);
+    filter_formats(&mut formats, filter);
 
     if formats.iter().any(|x| x.is_hls) {
         formats.retain(|fmt| (fmt.is_hls) || !(fmt.is_live));
@@ -292,24 +282,24 @@ pub fn choose_format<'a>(
     formats.sort_by(sort_formats);
     match options.quality {
         VideoQuality::Highest => {
-            filter_formats(&mut formats, &filter);
+            filter_formats(&mut formats, filter);
 
             let return_format = formats.get(0);
 
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.unwrap().clone());
+            Ok(return_format.unwrap().clone())
         }
         VideoQuality::Lowest => {
-            filter_formats(&mut formats, &filter);
+            filter_formats(&mut formats, filter);
 
-            let return_format = formats.get(formats.len() - 1);
+            let return_format = formats.last();
 
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.unwrap().clone());
+            Ok(return_format.unwrap().clone())
         }
         VideoQuality::HighestAudio => {
             filter_formats(&mut formats, &VideoSearchOptions::Audio);
@@ -320,19 +310,19 @@ pub fn choose_format<'a>(
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.unwrap().clone());
+            Ok(return_format.unwrap().clone())
         }
         VideoQuality::LowestAudio => {
             filter_formats(&mut formats, &VideoSearchOptions::Audio);
 
             formats.sort_by(sort_formats_by_audio);
 
-            let return_format = formats.get(formats.len() - 1);
+            let return_format = formats.last();
 
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.unwrap().clone());
+            Ok(return_format.unwrap().clone())
         }
         VideoQuality::HighestVideo => {
             filter_formats(&mut formats, &VideoSearchOptions::Video);
@@ -343,19 +333,19 @@ pub fn choose_format<'a>(
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.unwrap().clone());
+            Ok(return_format.unwrap().clone())
         }
         VideoQuality::LowestVideo => {
             filter_formats(&mut formats, &VideoSearchOptions::Video);
 
             formats.sort_by(sort_formats_by_video);
 
-            let return_format = formats.get(formats.len() - 1);
+            let return_format = formats.last();
 
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
             }
-            return Ok(return_format.unwrap().clone());
+            Ok(return_format.unwrap().clone())
         }
     }
 }
@@ -375,7 +365,7 @@ where
         }
     }
 
-    return res;
+    res
 }
 
 pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
@@ -389,7 +379,7 @@ pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Orde
                 let quality_label = PARSE_INT_REGEX
                     .captures(&quality_label)
                     .and_then(|x| x.get(0))
-                    .and_then(|x| Some(x.as_str()))
+                    .map(|x| x.as_str())
                     .and_then(|x| x.parse::<i32>().ok())
                     .unwrap_or(0i32);
 
@@ -404,10 +394,10 @@ pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Orde
                         form.codecs.is_some()
                             && form.codecs.clone().unwrap_or("".to_string()).contains(enc)
                     })
-                    .and_then(|x| Some(x as i32))
+                    .map(|x| x as i32)
                     .unwrap_or(-1);
 
-                return index as i32;
+                index
             },
         ]
         .to_vec(),
@@ -428,10 +418,10 @@ pub fn sort_formats_by_audio(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Orde
                         form.codecs.is_some()
                             && form.codecs.clone().unwrap_or("".to_string()).contains(enc)
                     })
-                    .and_then(|x| Some(x as i32))
+                    .map(|x| x as i32)
                     .unwrap_or(-1);
 
-                return index as i32;
+                index
             },
         ]
         .to_vec(),
@@ -463,11 +453,11 @@ pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
                 let quality_label = PARSE_INT_REGEX
                     .captures(&quality_label)
                     .and_then(|x| x.get(0))
-                    .and_then(|x| Some(x.as_str()))
+                    .map(|x| x.as_str())
                     .and_then(|x| x.parse::<i32>().ok())
                     .unwrap_or(0i32);
 
-                (quality_label) as i32
+                quality_label
             },
             |form: &VideoFormat| form.bitrate as i32,
             |form: &VideoFormat| form.audio_bitrate.unwrap_or(0) as i32,
@@ -476,20 +466,20 @@ pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
                 let index = VIDEO_ENCODING_RANKS
                     .iter()
                     .position(|enc| form.codecs.clone().unwrap_or("".to_string()).contains(enc))
-                    .and_then(|x| Some(x as i32))
+                    .map(|x| x as i32)
                     .unwrap_or(-1);
 
-                return index as i32;
+                index
             },
             // getAudioEncodingRank,
             |form: &VideoFormat| {
                 let index = AUDIO_ENCODING_RANKS
                     .iter()
                     .position(|enc| form.codecs.clone().unwrap_or("".to_string()).contains(enc))
-                    .and_then(|x| Some(x as i32))
+                    .map(|x| x as i32)
                     .unwrap_or(-1);
 
-                return index as i32;
+                index
             },
         ]
         .to_vec(),
@@ -586,7 +576,7 @@ pub fn set_download_url(
             .collect::<Vec<(String, String)>>();
 
         if !return_url.query_pairs().any(|(name, _)| name == query_name) {
-            query.push((query_name.to_string(), result.to_string()));
+            query.push((query_name.to_string(), result));
         }
 
         return_url.query_pairs_mut().clear().extend_pairs(&query);
@@ -695,19 +685,14 @@ pub fn set_download_url(
     serde_json::json!(return_url.to_string())
 }
 
+/// Excavate video id from URLs or id with Regex
 pub fn get_video_id(url: &str) -> Option<String> {
     let url_regex = Regex::new(r"^https?://").unwrap();
 
     if validate_id(url.to_string()) {
-        return Some(url.to_string());
+        Some(url.to_string())
     } else if url_regex.is_match(url.trim()) {
-        let id = get_url_video_id(url);
-
-        if id.is_none() {
-            return None;
-        }
-
-        return Some(id.unwrap());
+        get_url_video_id(url)
     } else {
         None
     }
@@ -745,10 +730,10 @@ fn get_url_video_id(url: &str) -> Option<String> {
     if valid_path_domains.is_match(url.trim()) && id.is_none() {
         let captures = valid_path_domains.captures(url.trim());
         // println!("{:#?}", captures);
-        if captures.is_some() {
-            let id_group = captures.unwrap().get(1);
-            if id_group.is_some() {
-                id = Some(id_group.unwrap().as_str().to_string());
+        if let Some(captures_some) = captures {
+            let id_group = captures_some.get(1);
+            if let Some(id_group_some) = id_group {
+                id = Some(id_group_some.as_str().to_string());
             }
         }
     } else if url::Url::parse(url.trim()).unwrap().host_str().is_some()
@@ -759,16 +744,17 @@ fn get_url_video_id(url: &str) -> Option<String> {
         return None;
     }
 
-    if id.is_none() {
-        return None;
-    }
+    if let Some(id_some) = id {
+        id = Some(id_some.substring(0, 11).to_string());
 
-    id = Some(id.unwrap().substring(0, 11).to_string());
+        if !validate_id(id.clone().unwrap()) {
+            return None;
+        }
 
-    if !validate_id(id.clone().unwrap()) {
-        return None;
+        id
+    } else {
+        None
     }
-    return id;
 }
 
 pub fn get_text(obj: &serde_json::Value) -> &serde_json::Value {
@@ -817,15 +803,15 @@ pub fn clean_video_details(
         .and_then(|x| x.as_object())
         .unwrap_or(&empty_serde_map);
     VideoDetails {
-        author: get_author(&initial_response, &player_response),
+        author: get_author(initial_response, player_response),
         age_restricted: is_age_restricted(&media),
 
-        likes: get_likes(&initial_response),
-        dislikes: get_dislikes(&initial_response),
+        likes: get_likes(initial_response),
+        dislikes: get_dislikes(initial_response),
 
         video_url: format!("{BASE_URL}{id}"),
-        storyboards: get_storyboards(&player_response).unwrap_or(vec![]),
-        chapters: get_chapters(&initial_response).unwrap_or(vec![]),
+        storyboards: get_storyboards(player_response).unwrap_or(vec![]),
+        chapters: get_chapters(initial_response).unwrap_or(vec![]),
 
         embed: Embed {
             flash_secure_url: embed_object
@@ -847,9 +833,9 @@ pub fn clean_video_details(
                 .get("height")
                 .and_then(|x| {
                     if x.is_string() {
-                        x.as_str().and_then(|x| match x.parse::<i64>() {
-                            Ok(a) => Some(a),
-                            Err(_err) => Some(0i64),
+                        x.as_str().map(|x| match x.parse::<i64>() {
+                            Ok(a) => a,
+                            Err(_err) => 0i64,
                         })
                     } else {
                         x.as_i64()
@@ -860,9 +846,9 @@ pub fn clean_video_details(
                 .get("width")
                 .and_then(|x| {
                     if x.is_string() {
-                        x.as_str().and_then(|x| match x.parse::<i64>() {
-                            Ok(a) => Some(a),
-                            Err(_err) => Some(0i64),
+                        x.as_str().map(|x| match x.parse::<i64>() {
+                            Ok(a) => a,
+                            Err(_err) => 0i64,
                         })
                     } else {
                         x.as_i64()
@@ -997,9 +983,9 @@ pub fn clean_video_details(
                     .get("width")
                     .and_then(|x| {
                         if x.is_string() {
-                            x.as_str().and_then(|x| match x.parse::<i64>() {
-                                Ok(a) => Some(a),
-                                Err(_err) => Some(0i64),
+                            x.as_str().map(|x| match x.parse::<i64>() {
+                                Ok(a) => a,
+                                Err(_err) => 0i64,
                             })
                         } else {
                             x.as_i64()
@@ -1010,9 +996,9 @@ pub fn clean_video_details(
                     .get("height")
                     .and_then(|x| {
                         if x.is_string() {
-                            x.as_str().and_then(|x| match x.parse::<i64>() {
-                                Ok(a) => Some(a),
-                                Err(_err) => Some(0i64),
+                            x.as_str().map(|x| match x.parse::<i64>() {
+                                Ok(a) => a,
+                                Err(_err) => 0i64,
                             })
                         } else {
                             x.as_i64()
@@ -1032,7 +1018,7 @@ pub fn clean_video_details(
 pub fn is_verified(badges: &serde_json::Value) -> bool {
     badges
         .as_array()
-        .and_then(|x| {
+        .map(|x| {
             let verified_index = x
                 .iter()
                 .position(|c| {
@@ -1041,7 +1027,7 @@ pub fn is_verified(badges: &serde_json::Value) -> bool {
                 })
                 .unwrap_or(usize::MAX);
 
-            Some(verified_index < usize::MAX)
+            verified_index < usize::MAX
         })
         .unwrap_or(false)
 }
@@ -1052,21 +1038,18 @@ pub fn is_age_restricted(media: &serde_json::Value) -> bool {
         age_restricted = AGE_RESTRICTED_URLS.iter().any(|url| {
             media
                 .as_object()
-                .and_then(|x| {
+                .map(|x| {
                     let mut bool_vec: Vec<bool> = vec![];
 
                     for (_key, value) in x {
-                        if !value.is_string() {
-                            bool_vec.push(false);
+                        if let Some(value_some) = value.as_str() {
+                            bool_vec.push(value_some.contains(url))
                         } else {
-                            value
-                                .as_str()
-                                .and_then(|c| Some(bool_vec.push(c.contains(url))))
-                                .unwrap_or(bool_vec.push(false));
+                            bool_vec.push(false);
                         }
                     }
 
-                    Some(bool_vec.iter().any(|v| v == &true))
+                    bool_vec.iter().any(|v| v == &true)
                 })
                 .unwrap_or(false)
         })
@@ -1082,7 +1065,7 @@ pub fn is_rental(player_response: &serde_json::Value) -> bool {
         return false;
     }
 
-    return playability
+    playability
         .and_then(|x| x.get("status"))
         .and_then(|x| x.as_str())
         .unwrap_or("")
@@ -1090,7 +1073,7 @@ pub fn is_rental(player_response: &serde_json::Value) -> bool {
         && playability
             .and_then(|x| x.get("errorScreen"))
             .and_then(|x| x.get("playerLegacyDesktopYpcOfferRenderer"))
-            .is_some();
+            .is_some()
 }
 
 pub fn is_not_yet_broadcasted(player_response: &serde_json::Value) -> bool {
@@ -1100,11 +1083,11 @@ pub fn is_not_yet_broadcasted(player_response: &serde_json::Value) -> bool {
         return false;
     }
 
-    return playability
+    playability
         .and_then(|x| x.get("status"))
         .and_then(|x| x.as_str())
         .unwrap_or("")
-        == "LIVE_STREAM_OFFLINE";
+        == "LIVE_STREAM_OFFLINE"
 }
 
 pub fn is_play_error(player_response: &serde_json::Value, statuses: Vec<&str>) -> bool {
@@ -1112,11 +1095,11 @@ pub fn is_play_error(player_response: &serde_json::Value, statuses: Vec<&str>) -
         .get("playabilityStatus")
         .and_then(|x| x.get("status").and_then(|x| x.as_str()));
 
-    if playability.is_some() {
-        return statuses.contains(&playability.unwrap());
+    if let Some(playability_some) = playability {
+        return statuses.contains(&playability_some);
     }
 
-    return false;
+    false
 }
 
 pub fn is_private_video(player_response: &serde_json::Value) -> bool {
@@ -1130,7 +1113,7 @@ pub fn is_private_video(player_response: &serde_json::Value) -> bool {
         return true;
     }
 
-    return false;
+    false
 }
 
 pub async fn get_functions(
@@ -1143,7 +1126,7 @@ pub async fn get_functions(
 
     let url = url.as_str();
 
-    let response = get_html(&client, url, None).await?;
+    let response = get_html(client, url, None).await?;
 
     Ok(extract_functions(response))
 }
@@ -1152,7 +1135,7 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
     let mut functions: Vec<(String, String)> = vec![];
     fn extract_manipulations(body: String, caller: &str) -> String {
         let function_name = between(caller, r#"a=a.split("");"#, ".");
-        if function_name.len() <= 0 {
+        if function_name.is_empty() {
             return String::new();
         }
 
@@ -1170,18 +1153,18 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
             after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("null")),
         );
 
-        return return_formatted_string;
+        return_formatted_string
     }
 
     fn extract_decipher(body: String, functions: &mut Vec<(String, String)>) {
         let function_name = between(body.as_str(), r#"a.set("alr","yes");c&&(c="#, "(decodeURIC");
         // println!("decipher function name: {}", function_name);
-        if function_name.len() > 0 {
+        if !function_name.is_empty() {
             let function_start = format!("{function_name}=function(a)");
             let ndx = body.find(function_start.as_str());
 
-            if ndx.is_some() {
-                let sub_body = body.slice((ndx.unwrap() + function_start.len())..);
+            if let Some(ndx_some) = ndx {
+                let sub_body = body.slice((ndx_some + function_start.len())..);
                 let mut function_body = format!(
                     "var {function_start}{cut_after_js_sub_body}",
                     cut_after_js_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}"))
@@ -1205,31 +1188,31 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
         let left_name = format!(
             "{splitted_function_name}=[",
             splitted_function_name = function_name
-                .split("[")
+                .split('[')
                 .collect::<Vec<&str>>()
-                .get(0)
+                .first()
                 .unwrap_or(&"")
         );
 
-        if function_name.contains("[") {
+        if function_name.contains('[') {
             function_name = between(body.as_str(), left_name.as_str(), "]");
         }
 
         // println!("ncode function name: {}", function_name);
 
-        if function_name.len() > 0 {
+        if !function_name.is_empty() {
             let function_start = format!("{function_name}=function(a)");
             let ndx = body.find(function_start.as_str());
 
-            if ndx.is_some() {
-                let sub_body = body.slice((ndx.unwrap() + function_start.len())..);
+            if let Some(ndx_some) = ndx {
+                let sub_body = body.slice((ndx_some + function_start.len())..);
 
                 let end_of_the_function = r#"+a}return b.join("")}"#;
                 let end_index = sub_body.find(end_of_the_function);
 
                 // let cut_after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}"));
-                let cut_after_sub_body = if end_index.is_some() {
-                    sub_body.slice(0..(end_index.unwrap() + end_of_the_function.len()))
+                let cut_after_sub_body = if let Some(end_index_some) = end_index {
+                    sub_body.slice(0..(end_index_some + end_of_the_function.len()))
                 } else {
                     "{}"
                 };
@@ -1275,6 +1258,11 @@ pub async fn get_html(
     Ok(response_first.unwrap())
 }
 
+/// Try to generate IPv6 with custom valid block
+/// # Example
+/// ```ignore
+/// let ipv6: std::net::IpAddr = get_random_v6_ip("2001:4::/48")?;
+/// ```
 pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, VideoError> {
     let ipv6_format: String = ip.into();
 
@@ -1282,8 +1270,8 @@ pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, Video
         return Err(VideoError::InvalidIPv6Format);
     }
 
-    let format_attr = ipv6_format.split("/").collect::<Vec<&str>>();
-    let raw_addr = format_attr.get(0);
+    let format_attr = ipv6_format.split('/').collect::<Vec<&str>>();
+    let raw_addr = format_attr.first();
     let raw_mask = format_attr.get(1);
 
     if raw_addr.is_none() || raw_mask.is_none() {
@@ -1300,7 +1288,7 @@ pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, Video
 
     let mut base_10_mask = base_10_mask.unwrap();
 
-    if base_10_mask > 128 || base_10_mask < 24 {
+    if !(24..=128).contains(&base_10_mask) {
         return Err(VideoError::InvalidIPv6Subnet);
     }
 
@@ -1310,13 +1298,16 @@ pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, Video
     let mut random_addr = [0u16; 8];
     rng.fill(&mut random_addr);
 
-    for (i, addr_value) in random_addr.iter_mut().enumerate() {
+    for (idx, random_item) in random_addr.iter_mut().enumerate() {
+        // Calculate the amount of static bits
         let static_bits = std::cmp::min(base_10_mask, 16);
         base_10_mask -= static_bits;
+        // Adjust the bitmask with the static_bits
+        let mask = (0xffffu32 - ((2_u32.pow((16 - static_bits).into())) - 1)) as u16;
+        // Combine base_10_addr and random_item
+        let merged = (base_10_addr[idx] & mask) + (*random_item & (mask ^ 0xffff));
 
-        let mask = (0xffff - ((2_u16.pow((16 - static_bits).into())) - 1)) as u16;
-
-        *addr_value = (base_10_addr[i] & mask) + (*addr_value & (mask ^ 0xffff));
+        *random_item = merged;
     }
 
     Ok(std::net::IpAddr::from(random_addr))
@@ -1326,7 +1317,7 @@ pub fn normalize_ip(ip: impl Into<String>) -> Vec<u16> {
     let ip: String = ip.into();
     let parts = ip
         .split("::")
-        .map(|x| x.split(":").collect::<Vec<&str>>())
+        .map(|x| x.split(':').collect::<Vec<&str>>())
         .collect::<Vec<Vec<&str>>>();
 
     let empty_array = vec![];
@@ -1352,7 +1343,7 @@ pub fn make_absolute_url(base: &str, url: &str) -> Result<url::Url, VideoError> 
     match url::Url::parse(url) {
         Ok(u) => Ok(u),
         Err(e) if e == url::ParseError::RelativeUrlWithoutBase => {
-            let base_url = url::Url::parse(base).map_err(|e| VideoError::URLParseError(e))?;
+            let base_url = url::Url::parse(base).map_err(VideoError::URLParseError)?;
             Ok(base_url.join(url)?)
         }
         Err(e) => Err(VideoError::URLParseError(e)),
@@ -1361,15 +1352,15 @@ pub fn make_absolute_url(base: &str, url: &str) -> Result<url::Url, VideoError> 
 
 pub fn time_to_ms(duration: &str) -> usize {
     let mut ms = 0;
-    for (i, curr) in duration.split(':').into_iter().rev().enumerate() {
-        ms = ms + (curr.parse::<usize>().unwrap_or(0) * (u32::pow(60 as u32, i as u32) as usize));
+    for (i, curr) in duration.split(':').rev().enumerate() {
+        ms += curr.parse::<usize>().unwrap_or(0) * (u32::pow(60_u32, i as u32) as usize);
     }
-    ms = ms * 1000;
+    ms *= 1000;
     ms
 }
 
 pub fn parse_abbreviated_number(time_str: &str) -> usize {
-    let replaced_string = time_str.replace(",", ".").replace(" ", "");
+    let replaced_string = time_str.replace(',', ".").replace(' ', "");
     let string_match_regex = Regex::new(r"([\d,.]+)([MK]?)").unwrap();
     // let mut return_value = 0usize;
 
@@ -1379,22 +1370,23 @@ pub fn parse_abbreviated_number(time_str: &str) -> usize {
 
     let return_value = if caps.len() > 0 {
         let mut num;
-        let multi;
 
         match caps.get(1) {
             Some(regex_match) => num = regex_match.as_str().parse::<f32>().unwrap_or(0f32),
             None => num = 0f32,
         }
 
-        match caps.get(2) {
-            Some(regex_match) => multi = regex_match.as_str(),
-            None => multi = "",
-        }
+        let multi = match caps.get(2) {
+            Some(regex_match) => regex_match.as_str(),
+            None => "",
+        };
 
         match multi {
-            "M" => num = num * 1000000f32,
-            "K" => num = num * 1000f32,
-            _ => num = num,
+            "M" => num *= 1000000f32,
+            "K" => num *= 1000f32,
+            _ => {
+                // Do Nothing
+            }
         }
 
         num = num.round();
@@ -1408,7 +1400,7 @@ pub fn parse_abbreviated_number(time_str: &str) -> usize {
 
 pub fn merge(a: &mut serde_json::Value, b: &serde_json::Value) {
     match (a, b) {
-        (&mut serde_json::Value::Object(ref mut a), &serde_json::Value::Object(ref b)) => {
+        (&mut serde_json::Value::Object(ref mut a), serde_json::Value::Object(b)) => {
             for (k, v) in b {
                 merge(a.entry(k.clone()).or_insert(serde_json::Value::Null), v);
             }
@@ -1465,7 +1457,7 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
             && mixed_json.slice(i..=i)
                 == is_escaped_object
                     .as_ref()
-                    .and_then(|x| Some(x.end.as_str()))
+                    .map(|x| x.end.as_str())
                     .unwrap_or("57")
         {
             is_escaped_object = None;
@@ -1483,7 +1475,7 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
 
                 let start_prefix_regex = escaped.start_prefix.as_ref().unwrap();
 
-                let substring_start_number = if i < 10 { 0usize } else { (i - 10) as usize };
+                let substring_start_number = if i < 10 { 0usize } else { i - 10 };
 
                 if start_prefix_regex.is_match(mixed_json.substring(substring_start_number, i)) {
                     is_escaped_object = Some(escaped.clone());
@@ -1495,7 +1487,7 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
             }
         }
 
-        is_escaped = mixed_json.slice(i..=i).chars().next() == Some('\\'); // && !is_escaped;
+        is_escaped = mixed_json.slice(i..=i).starts_with('\\'); // && !is_escaped;
 
         if is_escaped_object.is_some() {
             continue;

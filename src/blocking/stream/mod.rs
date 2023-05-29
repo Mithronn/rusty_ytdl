@@ -1,3 +1,3 @@
-mod stream;
+mod streams;
 
-pub use stream::{LiveStream, LiveStreamOptions, NonLiveStream, NonLiveStreamOptions, Stream};
+pub use streams::{LiveStream, LiveStreamOptions, NonLiveStream, NonLiveStreamOptions, Stream};

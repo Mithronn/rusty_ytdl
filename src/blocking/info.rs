@@ -9,10 +9,12 @@ use super::stream::{LiveStream, LiveStreamOptions, NonLiveStream, NonLiveStreamO
 pub struct Video(AsyncVideo);
 
 impl Video {
+    /// Crate [`Video`] struct to get info or download with default [`VideoOptions`]
     pub fn new(url_or_id: impl Into<String>) -> Result<Self, VideoError> {
         Ok(Self(AsyncVideo::new(url_or_id)?))
     }
 
+    /// Crate [`Video`] struct to get info or download with custom [`VideoOptions`]
     pub fn new_with_options(
         url_or_id: impl Into<String>,
         options: VideoOptions,
@@ -20,14 +22,32 @@ impl Video {
         Ok(Self(AsyncVideo::new_with_options(url_or_id, options)?))
     }
 
+    /// Try to get basic information about video
+    /// - `HLS` and `DashMPD` formats excluded!
     pub fn get_basic_info(&self) -> Result<VideoInfo, VideoError> {
         Ok(block_async!(self.0.get_basic_info())?)
     }
 
+    /// Try to get full information about video
+    /// - `HLS` and `DashMPD` formats included!
     pub fn get_info(&self) -> Result<VideoInfo, VideoError> {
         Ok(block_async!(self.0.get_info())?)
     }
 
+    /// Try to turn [`Stream`] implemented [`LiveStream`] or [`NonLiveStream`] depend on the video.
+    /// If function successfully return can download video chunk by chunk
+    /// # Example
+    /// ```
+    ///     let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc";
+    ///
+    ///     let video = Video::new(video_url).unwrap();
+    ///
+    ///     let stream = video.stream().unwrap();
+    ///
+    ///     while let Some(chunk) = stream.chunk().unwrap() {
+    ///           println!("{:#?}", chunk);
+    ///     }
+    /// ```
     pub fn stream(&self) -> Result<Box<dyn Stream>, VideoError> {
         let client = self.0.get_client();
 
@@ -60,7 +80,7 @@ impl Video {
         let dl_chunk_size = if options.download_options.dl_chunk_size.is_some() {
             options.download_options.dl_chunk_size.unwrap()
         } else {
-            1024 * 1024 * 10 as u64 // -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
+            1024 * 1024 * 10_u64 // -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
         };
 
         let start = 0;
@@ -75,7 +95,7 @@ impl Video {
         // Get content length from source url if content_length is 0
         if content_length == 0 {
             let content_length_response = block_async!(client.get(&link).send())
-                .map_err(|op| VideoError::ReqwestMiddleware(op))?
+                .map_err(VideoError::ReqwestMiddleware)?
                 .content_length();
 
             if content_length_response.is_none() {
@@ -101,14 +121,17 @@ impl Video {
         Ok(Box::new(stream.unwrap()))
     }
 
+    /// Download video directly to the file
     pub fn download<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), VideoError> {
         Ok(block_async!(self.0.download(path))?)
     }
 
+    /// Get video URL
     pub fn get_video_url(&self) -> String {
         self.0.get_video_url()
     }
 
+    /// Get video id
     pub fn get_video_id(&self) -> String {
         self.0.get_video_id()
     }

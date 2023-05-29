@@ -42,7 +42,7 @@ async fn main() {
 
   let stream = video.stream().await.unwrap();
 
-  while let Ok(chunk) = stream.chunk().await {
+  while let Some(chunk) = stream.chunk().await.unwrap() {
     // Do what you want with chunks
     println!("{:#?}", chunk);
   }
@@ -66,7 +66,7 @@ async fn main() {
 
   let stream = video.stream().await.unwrap();
 
-  while let Ok(chunk) = stream.chunk().await {
+  while let Some(chunk) = stream.chunk().await.unwrap() {
     // Do what you want with chunks
     println!("{:#?}", chunk);
   }
@@ -158,5 +158,5 @@ Or add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rusty_ytdl = "0.6.0"
+rusty_ytdl = "0.6.1"
 ```

@@ -14,8 +14,6 @@ async fn formats_str_to_json() {
             .and_then(|c| c.as_object().and_then(|x| x.get("qualityLabel")))
     });
 
-    // println!("{:#?}", itag_91);
-
     assert_eq!(
         Some(&serde_json::Value::String(
             "video/ts; codecs=\"H.264, aac\"".to_string()

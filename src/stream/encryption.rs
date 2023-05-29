@@ -24,8 +24,8 @@ impl Encryption {
     /// If encrypted, will make a query to the designated url to fetch the key
     pub async fn new(m3u8_key: &Key, base_url: &str, seq: u64) -> Result<Self, VideoError> {
         let encryption = match &m3u8_key {
-            k if k.method.to_string() == "NONE".to_string() => Self::None,
-            k if k.method.to_string() == "AES-128".to_string() => {
+            k if k.method.to_string() == *"NONE" => Self::None,
+            k if k.method.to_string() == *"AES-128" => {
                 if let Some(uri) = &k.uri {
                     // Bail if keyformat exists but is not "identity"
                     if let Some(keyformat) = &k.keyformat {
@@ -46,7 +46,7 @@ impl Encryption {
                         // IV is given separately
                         let iv_str = iv_str.trim_start_matches("0x");
                         hex::decode_to_slice(iv_str, &mut iv as &mut [u8])
-                            .map_err(|e| VideoError::HexError(e))?;
+                            .map_err(VideoError::HexError)?;
                     } else {
                         // Compute IV from segment sequence
                         iv[(16 - std::mem::size_of_val(&seq))..]
@@ -61,7 +61,7 @@ impl Encryption {
                     ));
                 }
             }
-            k if k.method.to_string() == "SAMPLE-AES".to_string() => {
+            k if k.method.to_string() == *"SAMPLE-AES" => {
                 return Err(VideoError::EncryptionError(format!(
                     "Unimplemented encryption method: {}",
                     k.method

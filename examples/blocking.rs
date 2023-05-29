@@ -1,7 +1,9 @@
-use rusty_ytdl::blocking::*;
-
 fn main() {
-    let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc";
+    #[cfg(feature = "blocking")]
+    {
+        use rusty_ytdl::blocking::*;
+        let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc";
 
-    let _video = Video::new(video_url).unwrap();
+        let _video = Video::new(video_url).unwrap();
+    }
 }

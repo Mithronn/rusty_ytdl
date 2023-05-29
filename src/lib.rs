@@ -4,11 +4,11 @@
 
 mod info;
 mod info_extras;
-mod stream;
 mod structs;
 mod utils;
 
 pub mod constants;
+pub mod stream;
 
 #[cfg(feature = "blocking")]
 pub mod blocking;

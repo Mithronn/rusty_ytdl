@@ -3,7 +3,7 @@ use once_cell::sync::Lazy;
 
 pub const BASE_URL: &str = "https://www.youtube.com/watch?v=";
 
-pub const VALID_QUERY_DOMAINS: &'static [&str] = &[
+pub const VALID_QUERY_DOMAINS: &[&str] = &[
     "youtube.com",
     "www.youtube.com",
     "m.youtube.com",
@@ -11,13 +11,13 @@ pub const VALID_QUERY_DOMAINS: &'static [&str] = &[
     "gaming.youtube.com",
 ];
 
-pub const AGE_RESTRICTED_URLS: &'static [&str] = &[
+pub const AGE_RESTRICTED_URLS: &[&str] = &[
     "support.google.com/youtube/?p=age_restrictions",
     "youtube.com/t/community_guidelines",
 ];
 
-pub const AUDIO_ENCODING_RANKS: &'static [&str] = &["mp4a", "mp3", "vorbis", "aac", "opus", "flac"];
-pub const VIDEO_ENCODING_RANKS: &'static [&str] = &[
+pub const AUDIO_ENCODING_RANKS: &[&str] = &["mp4a", "mp3", "vorbis", "aac", "opus", "flac"];
+pub const VIDEO_ENCODING_RANKS: &[&str] = &[
     "mp4v",
     "avc1",
     "Sorenson H.283",
@@ -34,14 +34,14 @@ pub(crate) static DEFAULT_HEADERS: Lazy<reqwest::header::HeaderMap> = Lazy::new(
     headers
 });
 
-pub(crate) const IPV6_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+pub(crate) static IPV6_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
     regex::Regex::new(r#"^(([0-9a-f]{1,4}:)(:[0-9a-f]{1,4}){1,6}|([0-9a-f]{1,4}:){1,2}(:[0-9a-f]{1,4}){1,5}|([0-9a-f]{1,4}:){1,3}(:[0-9a-f]{1,4}){1,4}|([0-9a-f]{1,4}:){1,4}(:[0-9a-f]{1,4}){1,3}|([0-9a-f]{1,4}:){1,5}(:[0-9a-f]{1,4}){1,2}|([0-9a-f]{1,4}:){1,6}(:[0-9a-f]{1,4})|([0-9a-f]{1,4}:){1,7}(([0-9a-f]{1,4})|:))/(1[0-1]\d|12[0-8]|\d{1,2})$"#).unwrap()
 });
 
-pub(crate) const PARSE_INT_REGEX: Lazy<regex::Regex> =
+pub(crate) static PARSE_INT_REGEX: Lazy<regex::Regex> =
     Lazy::new(|| regex::Regex::new(r#"(?m)^\s*((\-|\+)?[0-9]+)\s*"#).unwrap());
 
-pub(crate) const ESCAPING_SEQUENZES: Lazy<[EscapeSequenze; 4]> = Lazy::new(|| {
+pub(crate) static ESCAPING_SEQUENZES: Lazy<[EscapeSequenze; 4]> = Lazy::new(|| {
     [
         EscapeSequenze {
             start: r#"""#.to_string(),

@@ -3,6 +3,6 @@ mod hashable_byte_range;
 mod media_format;
 mod remote_data;
 mod segment;
-mod stream;
+mod streams;
 
-pub use stream::{LiveStream, LiveStreamOptions, NonLiveStream, NonLiveStreamOptions, Stream};
+pub use streams::{LiveStream, LiveStreamOptions, NonLiveStream, NonLiveStreamOptions, Stream};
