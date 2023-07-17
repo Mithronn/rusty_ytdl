@@ -37,7 +37,7 @@ impl Video {
     /// Try to turn [`Stream`] implemented [`LiveStream`] or [`NonLiveStream`] depend on the video.
     /// If function successfully return can download video chunk by chunk
     /// # Example
-    /// ```
+    /// ```ignore
     ///     let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc";
     ///
     ///     let video = Video::new(video_url).unwrap();
@@ -48,7 +48,7 @@ impl Video {
     ///           println!("{:#?}", chunk);
     ///     }
     /// ```
-    pub fn stream(&self) -> Result<Box<dyn Stream>, VideoError> {
+    pub fn stream(&self) -> Result<Box<dyn Stream + Send + Sync>, VideoError> {
         let client = self.0.get_client();
 
         let options = self.0.get_options();

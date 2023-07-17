@@ -24,7 +24,7 @@ impl YouTube {
 
     /// Search with spesific `query`. If nothing found, its return empty [`Vec<SearchResult>`]
     /// # Example
-    /// ```
+    /// ```ignore
     ///     let youtube = YouTube::new().unwrap();
     ///
     ///     let res = youtube.search("i know your ways", None);
@@ -84,7 +84,7 @@ impl Playlist {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// let youtube = YouTube::new().unwrap();
     ///
     /// let res = youtube
@@ -117,7 +117,7 @@ impl Playlist {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// let youtube = YouTube::new().unwrap();
     ///
     /// let res = youtube

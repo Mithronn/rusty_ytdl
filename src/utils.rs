@@ -503,6 +503,11 @@ pub fn set_download_url(
     let decipher_script_string = functions.get(0).unwrap_or(&empty_script);
     let n_transform_script_string = functions.get(1).unwrap_or(&empty_script);
 
+    // println!(
+    //     "{:?}\n\n\n\n\n{:?}",
+    //     decipher_script_string, n_transform_script_string
+    // );
+
     fn decipher(url: &str, decipher_script_string: &(String, String)) -> String {
         let args: serde_json::value::Map<String, serde_json::Value> =
             serde_qs::from_str(url).unwrap();
@@ -1119,6 +1124,7 @@ pub fn is_private_video(player_response: &serde_json::Value) -> bool {
 pub async fn get_functions(
     html5player: impl Into<String>,
     client: &reqwest_middleware::ClientWithMiddleware,
+    cut_after_js_script: &mut js_sandbox::Script,
 ) -> Result<Vec<(String, String)>, VideoError> {
     let mut url = url::Url::parse(BASE_URL).expect("IMPOSSIBLE");
     url.set_path(&html5player.into());
@@ -1128,12 +1134,20 @@ pub async fn get_functions(
 
     let response = get_html(client, url, None).await?;
 
-    Ok(extract_functions(response))
+    Ok(extract_functions(response, cut_after_js_script))
 }
 
-pub fn extract_functions(body: String) -> Vec<(String, String)> {
+pub fn extract_functions(
+    body: String,
+    cut_after_js_script: &mut js_sandbox::Script,
+) -> Vec<(String, String)> {
     let mut functions: Vec<(String, String)> = vec![];
-    fn extract_manipulations(body: String, caller: &str) -> String {
+
+    fn extract_manipulations(
+        body: String,
+        caller: &str,
+        cut_after_js_script: &mut js_sandbox::Script,
+    ) -> String {
         let function_name = between(caller, r#"a=a.split("");"#, ".");
         if function_name.is_empty() {
             return String::new();
@@ -1148,15 +1162,19 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
 
         let sub_body = body.slice((ndx.unwrap() + function_start.len() - 1)..);
 
-        let return_formatted_string = format!(
-            "var {function_name}={after_sub_body}",
-            after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("null")),
-        );
+        let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", &sub_body);
+        let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("null"));
+
+        let return_formatted_string = format!("var {function_name}={cut_after_sub_body}");
 
         return_formatted_string
     }
 
-    fn extract_decipher(body: String, functions: &mut Vec<(String, String)>) {
+    fn extract_decipher(
+        body: String,
+        functions: &mut Vec<(String, String)>,
+        cut_after_js_script: &mut js_sandbox::Script,
+    ) {
         let function_name = between(body.as_str(), r#"a.set("alr","yes");c&&(c="#, "(decodeURIC");
         // println!("decipher function name: {}", function_name);
         if !function_name.is_empty() {
@@ -1165,14 +1183,19 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
 
             if let Some(ndx_some) = ndx {
                 let sub_body = body.slice((ndx_some + function_start.len())..);
-                let mut function_body = format!(
-                    "var {function_start}{cut_after_js_sub_body}",
-                    cut_after_js_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}"))
-                );
+
+                let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", &sub_body);
+                let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
+
+                let mut function_body = format!("var {function_start}{cut_after_sub_body}");
 
                 function_body = format!(
                     "{manipulated_body};{function_body};",
-                    manipulated_body = extract_manipulations(body.clone(), function_body.as_str()),
+                    manipulated_body = extract_manipulations(
+                        body.clone(),
+                        function_body.as_str(),
+                        cut_after_js_script
+                    ),
                 );
 
                 function_body.retain(|c| c != '\n');
@@ -1182,11 +1205,15 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
         }
     }
 
-    fn extract_ncode(body: String, functions: &mut Vec<(String, String)>) {
+    fn extract_ncode(
+        body: String,
+        functions: &mut Vec<(String, String)>,
+        cut_after_js_script: &mut js_sandbox::Script,
+    ) {
         let mut function_name = between(body.as_str(), r#"&&(b=a.get("n"))&&(b="#, "(b)");
 
         let left_name = format!(
-            "{splitted_function_name}=[",
+            "var {splitted_function_name}=[",
             splitted_function_name = function_name
                 .split('[')
                 .collect::<Vec<&str>>()
@@ -1207,17 +1234,10 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
             if let Some(ndx_some) = ndx {
                 let sub_body = body.slice((ndx_some + function_start.len())..);
 
-                let end_of_the_function = r#"+a}return b.join("")}"#;
-                let end_index = sub_body.find(end_of_the_function);
+                let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", &sub_body);
+                let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
 
-                // let cut_after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}"));
-                let cut_after_sub_body = if let Some(end_index_some) = end_index {
-                    sub_body.slice(0..(end_index_some + end_of_the_function.len()))
-                } else {
-                    "{}"
-                };
-
-                let mut function_body = format!("var {function_start}{cut_after_sub_body};",);
+                let mut function_body = format!("var {function_start}{cut_after_sub_body};");
 
                 function_body.retain(|c| c != '\n');
 
@@ -1225,8 +1245,9 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
             }
         }
     }
-    extract_decipher(body.clone(), &mut functions);
-    extract_ncode(body, &mut functions);
+
+    extract_decipher(body.clone(), &mut functions, cut_after_js_script);
+    extract_ncode(body, &mut functions, cut_after_js_script);
 
     // println!("{:#?} {}", functions, functions.len());
     functions
@@ -1487,7 +1508,7 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
             }
         }
 
-        is_escaped = mixed_json.slice(i..=i).starts_with('\\'); // && !is_escaped;
+        is_escaped = mixed_json.slice(i..=i).starts_with('\\') && !is_escaped;
 
         if is_escaped_object.is_some() {
             continue;
@@ -1506,4 +1527,128 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
         }
     }
     return_string
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cut_after_js() {
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": 1, "b": 1}"#).unwrap_or("".to_string()),
+        //     r#"{"a": 1, "b": 1}"#.to_string()
+        // );
+        // println!("[PASSED] test_works_with_simple_json");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": 1, "b": 1}abcd"#).unwrap_or("".to_string()),
+        //     r#"{"a": 1, "b": 1}"#.to_string()
+        // );
+        // println!("[PASSED] test_cut_extra_characters_after_json");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+        //     r#"{"a": "}1", "b": 1}"#.to_string()
+        // );
+        // println!("[PASSED] test_tolerant_to_double_quoted_string_constants");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": '}1', "b": 1}abcd"#).unwrap_or("".to_string()),
+        //     r#"{"a": '}1', "b": 1}"#.to_string()
+        // );
+        // println!("[PASSED] test_tolerant_to_single_quoted_string_constants");
+
+        // let str = "[-1816574795, '\",;/[;', function asdf() { a = 2/3; return a;}]";
+        // assert_eq!(
+        //     cut_after_js(format!("{}abcd", str).as_str()).unwrap_or("".to_string()),
+        //     str.to_string()
+        // );
+        // println!("[PASSED] test_tolerant_to_complex_single_quoted_string_constants");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": `}1`, "b": 1}abcd"#).unwrap_or("".to_string()),
+        //     r#"{"a": `}1`, "b": 1}"#.to_string()
+        // );
+        // println!("[PASSED] test_tolerant_to_back_tick_quoted_string_constants");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+        //     r#"{"a": "}1", "b": 1}"#.to_string()
+        // );
+        // println!("[PASSED] test_tolerant_to_string_constants");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": "\\"}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+        //     r#"{"a": "\\"}1", "b": 1}"#.to_string()
+        // );
+        // println!("[PASSED] test_tolerant_to_string_with_escaped_quoting");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": "\\"}1", "b": 1, "c": /[0-9]}}\\/}/}abcd"#)
+        //         .unwrap_or("".to_string()),
+        //     r#"{"a": "\\"}1", "b": 1, "c": /[0-9]}}\\/}/}"#.to_string()
+        // );
+        // println!("[PASSED] test_tolerant_to_string_with_regexes");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}abcd"#)
+        //         .unwrap_or("".to_string()),
+        //     r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}"#.to_string()
+        // );
+        // println!("[PASSED] test_tolerant_to_string_with_regexes_in_arrays");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": "\\"}1", "b": 1, "c": [4/6, /[0-9]}}\\/}/]}abcd"#)
+        //         .unwrap_or("".to_string()),
+        //     r#"{"a": "\\"}1", "b": 1, "c": [4/6, /[0-9]}}\\/}/]}"#.to_string()
+        // );
+        // println!("[PASSED] test_does_not_fail_for_division_followed_by_a_regex");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": "\\"1", "b": 1, "c": {"test": 1}}abcd"#)
+        //         .unwrap_or("".to_string()),
+        //     r#"{"a": "\\"1", "b": 1, "c": {"test": 1}}"#.to_string()
+        // );
+        // println!("[PASSED] test_works_with_nested_objects");
+
+        // let test_str = r#"{"a": "\\"1", "b": 1, "c": () => { try { /* do sth */ } catch (e) { a = [2+3] }; return 5}}"#;
+        // assert_eq!(
+        //     cut_after_js(format!("{}abcd", test_str).as_str()).unwrap_or("".to_string()),
+        //     test_str.to_string()
+        // );
+        // println!("[PASSED] test_works_with_try_catch");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": "\\"фыва", "b": 1, "c": {"test": 1}}abcd"#)
+        //         .unwrap_or("".to_string()),
+        //     r#"{"a": "\\"фыва", "b": 1, "c": {"test": 1}}"#.to_string()
+        // );
+        // println!("[PASSED] test_works_with_utf");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}abcd"#)
+        //         .unwrap_or("".to_string()),
+        //     r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}"#.to_string()
+        // );
+        // println!("[PASSED] test_works_with_backslashes_in_string");
+
+        // assert_eq!(
+        //     cut_after_js(r#"{"text": "\\\\"};"#).unwrap_or("".to_string()),
+        //     r#"{"text": "\\\\"}"#.to_string()
+        // );
+        // println!("[PASSED] test_works_with_backslashes_towards_end_of_string");
+
+        // assert_eq!(
+        //     cut_after_js(r#"[{"a": 1}, {"b": 2}]abcd"#).unwrap_or("".to_string()),
+        //     r#"[{"a": 1}, {"b": 2}]"#.to_string()
+        // );
+        // println!("[PASSED] test_works_with_array_as_start");
+
+        // assert!(cut_after_js("abcd]}").is_none());
+        // println!("[PASSED] test_returns_error_when_not_beginning_with_bracket");
+
+        // assert!(cut_after_js(r#"{"a": 1,{ "b": 1}"#).is_none());
+        // println!("[PASSED] test_returns_error_when_missing_closing_bracket");
+    }
 }

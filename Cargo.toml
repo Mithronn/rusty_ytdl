@@ -1,6 +1,6 @@
 [package]
 name = "rusty_ytdl"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Mithronn"]
 edition = "2021"
 description = "A Rust library for Youtube video searcher and downloader"
@@ -21,10 +21,13 @@ categories = ["multimedia::video", "multimedia::audio"]
 [package.metadata.docs.rs]
 all-features = true
 
+[workspace]
+members = [".", "cli"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = {version = "0.11.16", features = ["cookies","gzip"]}
+reqwest = {version = "0.11.18", features = ["cookies","gzip"]}
 scraper = "0.16.0"
 serde = "1.0.158"
 serde_json = "1.0.94"
@@ -40,7 +43,7 @@ derivative = "2.2.0"
 once_cell = "1.17.1"
 tokio = { version = "1.26.0", optional = true }
 rand = "0.8.5"
-reqwest-middleware = "0.2.1"
+reqwest-middleware = "0.2.2"
 reqwest-retry = "0.2.2"
 m3u8-rs = "5.0.3"
 async-trait = "0.1.68"

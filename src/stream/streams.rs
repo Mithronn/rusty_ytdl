@@ -28,6 +28,13 @@ pub trait Stream {
     ///
     /// When the bytes has been exhausted, this will return `None`.
     async fn chunk(&self) -> Result<Option<Vec<u8>>, VideoError>;
+
+    /// Content length of the stream
+    ///
+    /// If stream is [`LiveStream`] returns always `0`
+    fn content_length(&self) -> usize {
+        0
+    }
 }
 
 pub struct NonLiveStream {
@@ -70,6 +77,10 @@ impl NonLiveStream {
             start: RwLock::new(options.start),
             end: RwLock::new(options.end),
         })
+    }
+
+    pub fn content_length(&self) -> u64 {
+        self.content_length
     }
 
     async fn end_index(&self) -> u64 {
@@ -136,6 +147,10 @@ impl Stream for NonLiveStream {
         }
 
         Ok(Some(buf))
+    }
+
+    fn content_length(&self) -> usize {
+        self.content_length() as usize
     }
 }
 

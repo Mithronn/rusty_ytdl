@@ -1,4 +1,7 @@
-use std::{cell::RefCell, sync::Arc};
+use std::{
+    cell::RefCell,
+    sync::{Arc, RwLock},
+};
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -32,7 +35,7 @@ pub struct YouTube {
     #[derivative(PartialEq = "ignore")]
     client: reqwest_middleware::ClientWithMiddleware,
     #[derivative(PartialEq = "ignore")]
-    innertube_cache: RefCell<Option<String>>,
+    innertube_cache: Arc<RwLock<Option<String>>>,
 }
 
 impl YouTube {
@@ -46,7 +49,7 @@ impl YouTube {
 
         Ok(Self {
             client,
-            innertube_cache: RefCell::new(None),
+            innertube_cache: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -82,7 +85,7 @@ impl YouTube {
 
         Ok(Self {
             client,
-            innertube_cache: RefCell::new(None),
+            innertube_cache: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -204,7 +207,7 @@ impl YouTube {
 
     async fn innertube_key(&self) -> String {
         {
-            let innertube_cache = self.innertube_cache.borrow();
+            let innertube_cache = self.innertube_cache.read().unwrap();
             if innertube_cache.is_some() {
                 return innertube_cache.as_ref().unwrap().to_string();
             }
@@ -229,7 +232,9 @@ impl YouTube {
 
         let result = get_api_key(response);
 
-        *self.innertube_cache.borrow_mut() = Some(result.clone());
+        let mut innertube_cache_data = self.innertube_cache.write().unwrap();
+
+        *innertube_cache_data = Some(result.clone());
         result
     }
 }

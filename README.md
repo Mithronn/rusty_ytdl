@@ -1,4 +1,4 @@
-# <div align="center">rusty_ytdl</div>
+# `<div align="center">`rusty_ytdl`</div>`
 
 <div align="center">
 
@@ -158,5 +158,5 @@ Or add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rusty_ytdl = "0.6.1"
+rusty_ytdl = "0.6.2"
 ```

@@ -8,6 +8,13 @@ pub trait Stream {
     ///
     /// When the bytes has been exhausted, this will return `None`.
     fn chunk(&self) -> Result<Option<Vec<u8>>, VideoError>;
+
+    /// Content length of the stream
+    ///
+    /// If stream is [`LiveStream`] returns always `0`
+    fn content_length(&self) -> usize {
+        0
+    }
 }
 
 pub struct NonLiveStream(AsyncNonLiveStream);
@@ -22,6 +29,10 @@ impl Stream for NonLiveStream {
     fn chunk(&self) -> Result<Option<Vec<u8>>, VideoError> {
         use crate::stream::Stream;
         Ok(block_async!(self.0.chunk())?)
+    }
+
+    fn content_length(&self) -> usize {
+        self.0.content_length() as usize
     }
 }
 
