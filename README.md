@@ -3,7 +3,7 @@
 <div align="center">
 
 [![crates.io](https://img.shields.io/crates/v/rusty_ytdl.svg?style=for-the-badge&logo=rust)](https://crates.io/crates/rusty_ytdl)
-[![Released API docs](https://img.shields.io/badge/docs.rs-rusty__ytdl-C36241?style=for-the-badge&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAAAXNSR0IArs4c6QAAAHhJREFUOE+tkuEKgDAIhNvw/R94icUFDnMeUbSf6nfn1LaRZ2YHUr33VpUsQQdycRa4gRHywioGUQpGR4hAILo+gtH5P5ANhE0czlfveexZKLbouQkydRYvQZ8i2yVcF7DanwvE3HdwjLGLiLz5o6rqPAB2WhCscidaPm/VahMnogAAAABJRU5ErkJggg==)](https://docs.rs/rusty_ytdl)
+[![Released API docs](https://img.shields.io/badge/docs.rs-rusty__ytdl-C36241?style=for-the-badge&logo=docs.rs)](https://docs.rs/rusty_ytdl)
 
 </div>
 
