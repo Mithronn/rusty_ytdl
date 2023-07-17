@@ -534,7 +534,7 @@ pub fn set_download_url(
 
         let result = decipher_script.unwrap().call(
             decipher_script_string.0.as_str(),
-            &args.get("s").and_then(|x| x.as_str()).unwrap_or(""),
+            (&args.get("s").and_then(|x| x.as_str()).unwrap_or(""),),
         );
 
         if result.is_err() {
@@ -606,7 +606,7 @@ pub fn set_download_url(
 
         let result = n_transform_script.unwrap().call(
             n_transform_script_string.0.as_str(),
-            &components.get("n").and_then(|x| x.as_str()).unwrap_or(""),
+            (&components.get("n").and_then(|x| x.as_str()).unwrap_or(""),),
         );
 
         if result.is_err() {
@@ -1162,7 +1162,7 @@ pub fn extract_functions(
 
         let sub_body = body.slice((ndx.unwrap() + function_start.len() - 1)..);
 
-        let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", &sub_body);
+        let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
         let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("null"));
 
         let return_formatted_string = format!("var {function_name}={cut_after_sub_body}");
@@ -1184,7 +1184,7 @@ pub fn extract_functions(
             if let Some(ndx_some) = ndx {
                 let sub_body = body.slice((ndx_some + function_start.len())..);
 
-                let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", &sub_body);
+                let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
                 let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
 
                 let mut function_body = format!("var {function_start}{cut_after_sub_body}");
@@ -1234,7 +1234,7 @@ pub fn extract_functions(
             if let Some(ndx_some) = ndx {
                 let sub_body = body.slice((ndx_some + function_start.len())..);
 
-                let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", &sub_body);
+                let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
                 let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
 
                 let mut function_body = format!("var {function_start}{cut_after_sub_body};");
@@ -1529,126 +1529,126 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
     return_string
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-    #[test]
-    fn test_cut_after_js() {
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": 1, "b": 1}"#).unwrap_or("".to_string()),
-        //     r#"{"a": 1, "b": 1}"#.to_string()
-        // );
-        // println!("[PASSED] test_works_with_simple_json");
+//     #[test]
+//     fn test_cut_after_js() {
+//         assert_eq!(
+//             cut_after_js(r#"{"a": 1, "b": 1}"#).unwrap_or("".to_string()),
+//             r#"{"a": 1, "b": 1}"#.to_string()
+//         );
+//         println!("[PASSED] test_works_with_simple_json");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": 1, "b": 1}abcd"#).unwrap_or("".to_string()),
-        //     r#"{"a": 1, "b": 1}"#.to_string()
-        // );
-        // println!("[PASSED] test_cut_extra_characters_after_json");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": 1, "b": 1}abcd"#).unwrap_or("".to_string()),
+//             r#"{"a": 1, "b": 1}"#.to_string()
+//         );
+//         println!("[PASSED] test_cut_extra_characters_after_json");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
-        //     r#"{"a": "}1", "b": 1}"#.to_string()
-        // );
-        // println!("[PASSED] test_tolerant_to_double_quoted_string_constants");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+//             r#"{"a": "}1", "b": 1}"#.to_string()
+//         );
+//         println!("[PASSED] test_tolerant_to_double_quoted_string_constants");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": '}1', "b": 1}abcd"#).unwrap_or("".to_string()),
-        //     r#"{"a": '}1', "b": 1}"#.to_string()
-        // );
-        // println!("[PASSED] test_tolerant_to_single_quoted_string_constants");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": '}1', "b": 1}abcd"#).unwrap_or("".to_string()),
+//             r#"{"a": '}1', "b": 1}"#.to_string()
+//         );
+//         println!("[PASSED] test_tolerant_to_single_quoted_string_constants");
 
-        // let str = "[-1816574795, '\",;/[;', function asdf() { a = 2/3; return a;}]";
-        // assert_eq!(
-        //     cut_after_js(format!("{}abcd", str).as_str()).unwrap_or("".to_string()),
-        //     str.to_string()
-        // );
-        // println!("[PASSED] test_tolerant_to_complex_single_quoted_string_constants");
+//         let str = "[-1816574795, '\",;/[;', function asdf() { a = 2/3; return a;}]";
+//         assert_eq!(
+//             cut_after_js(format!("{}abcd", str).as_str()).unwrap_or("".to_string()),
+//             str.to_string()
+//         );
+//         println!("[PASSED] test_tolerant_to_complex_single_quoted_string_constants");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": `}1`, "b": 1}abcd"#).unwrap_or("".to_string()),
-        //     r#"{"a": `}1`, "b": 1}"#.to_string()
-        // );
-        // println!("[PASSED] test_tolerant_to_back_tick_quoted_string_constants");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": `}1`, "b": 1}abcd"#).unwrap_or("".to_string()),
+//             r#"{"a": `}1`, "b": 1}"#.to_string()
+//         );
+//         println!("[PASSED] test_tolerant_to_back_tick_quoted_string_constants");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
-        //     r#"{"a": "}1", "b": 1}"#.to_string()
-        // );
-        // println!("[PASSED] test_tolerant_to_string_constants");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+//             r#"{"a": "}1", "b": 1}"#.to_string()
+//         );
+//         println!("[PASSED] test_tolerant_to_string_constants");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": "\\"}1", "b": 1}abcd"#).unwrap_or("".to_string()),
-        //     r#"{"a": "\\"}1", "b": 1}"#.to_string()
-        // );
-        // println!("[PASSED] test_tolerant_to_string_with_escaped_quoting");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": "\\"}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+//             r#"{"a": "\\"}1", "b": 1}"#.to_string()
+//         );
+//         println!("[PASSED] test_tolerant_to_string_with_escaped_quoting");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": "\\"}1", "b": 1, "c": /[0-9]}}\\/}/}abcd"#)
-        //         .unwrap_or("".to_string()),
-        //     r#"{"a": "\\"}1", "b": 1, "c": /[0-9]}}\\/}/}"#.to_string()
-        // );
-        // println!("[PASSED] test_tolerant_to_string_with_regexes");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": "\\"}1", "b": 1, "c": /[0-9]}}\\/}/}abcd"#)
+//                 .unwrap_or("".to_string()),
+//             r#"{"a": "\\"}1", "b": 1, "c": /[0-9]}}\\/}/}"#.to_string()
+//         );
+//         println!("[PASSED] test_tolerant_to_string_with_regexes");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}abcd"#)
-        //         .unwrap_or("".to_string()),
-        //     r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}"#.to_string()
-        // );
-        // println!("[PASSED] test_tolerant_to_string_with_regexes_in_arrays");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}abcd"#)
+//                 .unwrap_or("".to_string()),
+//             r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}"#.to_string()
+//         );
+//         println!("[PASSED] test_tolerant_to_string_with_regexes_in_arrays");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": "\\"}1", "b": 1, "c": [4/6, /[0-9]}}\\/}/]}abcd"#)
-        //         .unwrap_or("".to_string()),
-        //     r#"{"a": "\\"}1", "b": 1, "c": [4/6, /[0-9]}}\\/}/]}"#.to_string()
-        // );
-        // println!("[PASSED] test_does_not_fail_for_division_followed_by_a_regex");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": "\\"}1", "b": 1, "c": [4/6, /[0-9]}}\\/}/]}abcd"#)
+//                 .unwrap_or("".to_string()),
+//             r#"{"a": "\\"}1", "b": 1, "c": [4/6, /[0-9]}}\\/}/]}"#.to_string()
+//         );
+//         println!("[PASSED] test_does_not_fail_for_division_followed_by_a_regex");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": "\\"1", "b": 1, "c": {"test": 1}}abcd"#)
-        //         .unwrap_or("".to_string()),
-        //     r#"{"a": "\\"1", "b": 1, "c": {"test": 1}}"#.to_string()
-        // );
-        // println!("[PASSED] test_works_with_nested_objects");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": "\\"1", "b": 1, "c": {"test": 1}}abcd"#)
+//                 .unwrap_or("".to_string()),
+//             r#"{"a": "\\"1", "b": 1, "c": {"test": 1}}"#.to_string()
+//         );
+//         println!("[PASSED] test_works_with_nested_objects");
 
-        // let test_str = r#"{"a": "\\"1", "b": 1, "c": () => { try { /* do sth */ } catch (e) { a = [2+3] }; return 5}}"#;
-        // assert_eq!(
-        //     cut_after_js(format!("{}abcd", test_str).as_str()).unwrap_or("".to_string()),
-        //     test_str.to_string()
-        // );
-        // println!("[PASSED] test_works_with_try_catch");
+//         let test_str = r#"{"a": "\\"1", "b": 1, "c": () => { try { /* do sth */ } catch (e) { a = [2+3] }; return 5}}"#;
+//         assert_eq!(
+//             cut_after_js(format!("{}abcd", test_str).as_str()).unwrap_or("".to_string()),
+//             test_str.to_string()
+//         );
+//         println!("[PASSED] test_works_with_try_catch");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": "\\"фыва", "b": 1, "c": {"test": 1}}abcd"#)
-        //         .unwrap_or("".to_string()),
-        //     r#"{"a": "\\"фыва", "b": 1, "c": {"test": 1}}"#.to_string()
-        // );
-        // println!("[PASSED] test_works_with_utf");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": "\\"фыва", "b": 1, "c": {"test": 1}}abcd"#)
+//                 .unwrap_or("".to_string()),
+//             r#"{"a": "\\"фыва", "b": 1, "c": {"test": 1}}"#.to_string()
+//         );
+//         println!("[PASSED] test_works_with_utf");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}abcd"#)
-        //         .unwrap_or("".to_string()),
-        //     r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}"#.to_string()
-        // );
-        // println!("[PASSED] test_works_with_backslashes_in_string");
+//         assert_eq!(
+//             cut_after_js(r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}abcd"#)
+//                 .unwrap_or("".to_string()),
+//             r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}"#.to_string()
+//         );
+//         println!("[PASSED] test_works_with_backslashes_in_string");
 
-        // assert_eq!(
-        //     cut_after_js(r#"{"text": "\\\\"};"#).unwrap_or("".to_string()),
-        //     r#"{"text": "\\\\"}"#.to_string()
-        // );
-        // println!("[PASSED] test_works_with_backslashes_towards_end_of_string");
+//         assert_eq!(
+//             cut_after_js(r#"{"text": "\\\\"};"#).unwrap_or("".to_string()),
+//             r#"{"text": "\\\\"}"#.to_string()
+//         );
+//         println!("[PASSED] test_works_with_backslashes_towards_end_of_string");
 
-        // assert_eq!(
-        //     cut_after_js(r#"[{"a": 1}, {"b": 2}]abcd"#).unwrap_or("".to_string()),
-        //     r#"[{"a": 1}, {"b": 2}]"#.to_string()
-        // );
-        // println!("[PASSED] test_works_with_array_as_start");
+//         assert_eq!(
+//             cut_after_js(r#"[{"a": 1}, {"b": 2}]abcd"#).unwrap_or("".to_string()),
+//             r#"[{"a": 1}, {"b": 2}]"#.to_string()
+//         );
+//         println!("[PASSED] test_works_with_array_as_start");
 
-        // assert!(cut_after_js("abcd]}").is_none());
-        // println!("[PASSED] test_returns_error_when_not_beginning_with_bracket");
+//         assert!(cut_after_js("abcd]}").is_none());
+//         println!("[PASSED] test_returns_error_when_not_beginning_with_bracket");
 
-        // assert!(cut_after_js(r#"{"a": 1,{ "b": 1}"#).is_none());
-        // println!("[PASSED] test_returns_error_when_missing_closing_bracket");
-    }
-}
+//         assert!(cut_after_js(r#"{"a": 1,{ "b": 1}"#).is_none());
+//         println!("[PASSED] test_returns_error_when_missing_closing_bracket");
+//     }
+// }
