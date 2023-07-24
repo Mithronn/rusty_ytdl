@@ -1,6 +1,7 @@
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use unicode_segmentation::UnicodeSegmentation;
 use urlencoding::decode;
 
 use crate::constants::{
@@ -9,7 +10,7 @@ use crate::constants::{
 };
 use crate::info_extras::{get_author, get_chapters, get_dislikes, get_likes, get_storyboards};
 use crate::structs::{
-    Embed, EscapeSequenze, StringUtils, Thumbnail, VideoDetails, VideoError, VideoFormat,
+    Embed, EscapeSequence, StringUtils, Thumbnail, VideoDetails, VideoError, VideoFormat,
     VideoOptions, VideoQuality, VideoSearchOptions,
 };
 
@@ -1124,7 +1125,6 @@ pub fn is_private_video(player_response: &serde_json::Value) -> bool {
 pub async fn get_functions(
     html5player: impl Into<String>,
     client: &reqwest_middleware::ClientWithMiddleware,
-    cut_after_js_script: &mut js_sandbox::Script,
 ) -> Result<Vec<(String, String)>, VideoError> {
     let mut url = url::Url::parse(BASE_URL).expect("IMPOSSIBLE");
     url.set_path(&html5player.into());
@@ -1134,19 +1134,19 @@ pub async fn get_functions(
 
     let response = get_html(client, url, None).await?;
 
-    Ok(extract_functions(response, cut_after_js_script))
+    Ok(extract_functions(response))
 }
 
-pub fn extract_functions(
-    body: String,
-    cut_after_js_script: &mut js_sandbox::Script,
-) -> Vec<(String, String)> {
+pub fn extract_functions(body: String) -> Vec<(String, String)> {
     let mut functions: Vec<(String, String)> = vec![];
+
+    // let mut cut_after_js_script =
+    //     js_sandbox::Script::from_string(CUT_AFTER_JS).expect("cut_after_js function error");
 
     fn extract_manipulations(
         body: String,
         caller: &str,
-        cut_after_js_script: &mut js_sandbox::Script,
+        // cut_after_js_script: &mut js_sandbox::Script,
     ) -> String {
         let function_name = between(caller, r#"a=a.split("");"#, ".");
         if function_name.is_empty() {
@@ -1162,8 +1162,10 @@ pub fn extract_functions(
 
         let sub_body = body.slice((ndx.unwrap() + function_start.len() - 1)..);
 
-        let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
-        let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("null"));
+        // let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
+        // let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("null"));
+
+        let cut_after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("null"));
 
         let return_formatted_string = format!("var {function_name}={cut_after_sub_body}");
 
@@ -1173,7 +1175,7 @@ pub fn extract_functions(
     fn extract_decipher(
         body: String,
         functions: &mut Vec<(String, String)>,
-        cut_after_js_script: &mut js_sandbox::Script,
+        // cut_after_js_script: &mut js_sandbox::Script,
     ) {
         let function_name = between(body.as_str(), r#"a.set("alr","yes");c&&(c="#, "(decodeURIC");
         // println!("decipher function name: {}", function_name);
@@ -1184,8 +1186,10 @@ pub fn extract_functions(
             if let Some(ndx_some) = ndx {
                 let sub_body = body.slice((ndx_some + function_start.len())..);
 
-                let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
-                let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
+                // let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
+                // let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
+
+                let cut_after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}"));
 
                 let mut function_body = format!("var {function_start}{cut_after_sub_body}");
 
@@ -1194,7 +1198,7 @@ pub fn extract_functions(
                     manipulated_body = extract_manipulations(
                         body.clone(),
                         function_body.as_str(),
-                        cut_after_js_script
+                        // cut_after_js_script
                     ),
                 );
 
@@ -1208,7 +1212,7 @@ pub fn extract_functions(
     fn extract_ncode(
         body: String,
         functions: &mut Vec<(String, String)>,
-        cut_after_js_script: &mut js_sandbox::Script,
+        // cut_after_js_script: &mut js_sandbox::Script,
     ) {
         let mut function_name = between(body.as_str(), r#"&&(b=a.get("n"))&&(b="#, "(b)");
 
@@ -1234,8 +1238,10 @@ pub fn extract_functions(
             if let Some(ndx_some) = ndx {
                 let sub_body = body.slice((ndx_some + function_start.len())..);
 
-                let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
-                let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
+                // let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
+                // let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
+
+                let cut_after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}"));
 
                 let mut function_body = format!("var {function_start}{cut_after_sub_body};");
 
@@ -1246,8 +1252,11 @@ pub fn extract_functions(
         }
     }
 
-    extract_decipher(body.clone(), &mut functions, cut_after_js_script);
-    extract_ncode(body, &mut functions, cut_after_js_script);
+    extract_decipher(
+        body.clone(),
+        &mut functions, /*&mut cut_after_js_script*/
+    );
+    extract_ncode(body, &mut functions /*&mut cut_after_js_script*/);
 
     // println!("{:#?} {}", functions, functions.len());
     functions
@@ -1432,25 +1441,43 @@ pub fn merge(a: &mut serde_json::Value, b: &serde_json::Value) {
     }
 }
 
-pub fn between<'a>(haystack: &'a str, left: &'a str, right: &'a str) -> &'a str {
-    let left_index = haystack.find(left);
-    if left_index.is_none() {
+// pub fn between<'a>(haystack: &'a str, left: &'a str, right: &'a str) -> &'a str {
+//     let left_index = haystack.find(left);
+//     if left_index.is_none() {
+//         return "";
+//     }
+
+//     let mut pos = left_index.unwrap();
+//     pos += left.len();
+
+//     let mut return_str = haystack.slice(pos..);
+//     let right_index = return_str.find(right);
+//     if right_index.is_none() {
+//         return "";
+//     }
+
+//     let second_pos = right_index.unwrap();
+
+//     return_str = return_str.substring(0, second_pos);
+//     return_str
+// }
+
+fn between<'a>(haystack: &'a str, left: &'a str, right: &'a str) -> &'a str {
+    let pos: usize;
+
+    if let Some(matched) = haystack.find(left) {
+        pos = matched + left.len();
+    } else {
         return "";
     }
 
-    let mut pos = left_index.unwrap();
-    pos += left.len();
+    let remaining_haystack = &haystack[pos..];
 
-    let mut return_str = haystack.slice(pos..);
-    let right_index = return_str.find(right);
-    if right_index.is_none() {
-        return "";
+    if let Some(matched) = remaining_haystack.find(right) {
+        &haystack[pos..pos + matched]
+    } else {
+        ""
     }
-
-    let second_pos = right_index.unwrap();
-
-    return_str = return_str.substring(0, second_pos);
-    return_str
 }
 
 pub fn cut_after_js(mixed_json: &str) -> Option<String> {
@@ -1462,20 +1489,21 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
         }
     };
 
-    let mut is_escaped_object: Option<EscapeSequenze> = None;
+    let mut is_escaped_object: Option<EscapeSequence> = None;
 
-    // States if the current character is treated as escaped or not
+    // States if the current character is escaped or not
     let mut is_escaped = false;
 
     // Current open brackets to be closed
     let mut counter = 0;
 
-    let mut return_string: Option<String> = None;
+    let mixed_json_unicode = mixed_json.graphemes(true).collect::<Vec<&str>>();
+    for (i, value) in mixed_json_unicode.iter().enumerate() {
+        let value = <&str>::clone(value);
 
-    for i in 0..mixed_json.len() {
         if !is_escaped
             && is_escaped_object.as_ref().is_some()
-            && mixed_json.slice(i..=i)
+            && value
                 == is_escaped_object
                     .as_ref()
                     .map(|x| x.end.as_str())
@@ -1485,170 +1513,181 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
             continue;
         } else if !is_escaped && is_escaped_object.is_none() {
             for escaped in ESCAPING_SEQUENZES.iter() {
-                if mixed_json.slice(i..=i) != escaped.start.as_str() {
+                if value != escaped.start.as_str() {
                     continue;
                 }
 
-                if escaped.start_prefix.is_none() {
-                    is_escaped_object = Some(escaped.clone());
-                    break;
-                }
+                let substring_start_number = if i <= 10 { 0usize } else { i - 10 };
 
-                let start_prefix_regex = escaped.start_prefix.as_ref().unwrap();
+                // println!(
+                //     "regex test str: {}\nregex test str length: {}\ntest result: {}\nindex: {}\nindex - 10: {}\n",
+                //     mixed_json.substring(substring_start_number, i),
+                //     mixed_json.substring(substring_start_number, i).len(),
+                //     escaped
+                //         .start_prefix
+                //         .as_ref()
+                //         .map(|x| x.is_match(mixed_json.substring(substring_start_number, i)))
+                //         .unwrap_or(false),
+                //     i,
+                //     (i as i32 - 10)
+                // );
 
-                let substring_start_number = if i < 10 { 0usize } else { i - 10 };
-
-                if start_prefix_regex.is_match(mixed_json.substring(substring_start_number, i)) {
+                if escaped.start_prefix.is_none()
+                    || escaped
+                        .start_prefix
+                        .as_ref()
+                        .map(|x| x.is_match(mixed_json.substring(substring_start_number, i)))
+                        .unwrap_or(false)
+                {
                     is_escaped_object = Some(escaped.clone());
                     break;
                 }
             }
+
             if is_escaped_object.is_some() {
                 continue;
             }
         }
 
-        is_escaped = mixed_json.slice(i..=i).starts_with('\\') && !is_escaped;
+        is_escaped = value == "\\" && !is_escaped;
 
         if is_escaped_object.is_some() {
             continue;
         }
 
-        if mixed_json.slice(i..=i) == open {
+        if value == open {
             counter += 1;
-        } else if mixed_json.slice(i..=i) == close {
+        } else if value == close {
             counter -= 1;
         }
 
         if counter == 0 {
-            // Return the cut JSON
-            return_string = Some(mixed_json.substring(0, i + 1).to_string());
-            break;
+            return Some(mixed_json.substring(0, i + 1).to_string());
         }
     }
-    return_string
+
+    None
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[test]
-//     fn test_cut_after_js() {
-//         assert_eq!(
-//             cut_after_js(r#"{"a": 1, "b": 1}"#).unwrap_or("".to_string()),
-//             r#"{"a": 1, "b": 1}"#.to_string()
-//         );
-//         println!("[PASSED] test_works_with_simple_json");
+    #[test]
+    fn test_cut_after_js() {
+        assert_eq!(
+            cut_after_js(r#"{"a": 1, "b": 1}"#).unwrap_or("".to_string()),
+            r#"{"a": 1, "b": 1}"#.to_string()
+        );
+        println!("[PASSED] test_works_with_simple_json");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": 1, "b": 1}abcd"#).unwrap_or("".to_string()),
-//             r#"{"a": 1, "b": 1}"#.to_string()
-//         );
-//         println!("[PASSED] test_cut_extra_characters_after_json");
+        assert_eq!(
+            cut_after_js(r#"{"a": 1, "b": 1}abcd"#).unwrap_or("".to_string()),
+            r#"{"a": 1, "b": 1}"#.to_string()
+        );
+        println!("[PASSED] test_cut_extra_characters_after_json");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
-//             r#"{"a": "}1", "b": 1}"#.to_string()
-//         );
-//         println!("[PASSED] test_tolerant_to_double_quoted_string_constants");
+        assert_eq!(
+            cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+            r#"{"a": "}1", "b": 1}"#.to_string()
+        );
+        println!("[PASSED] test_tolerant_to_double_quoted_string_constants");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": '}1', "b": 1}abcd"#).unwrap_or("".to_string()),
-//             r#"{"a": '}1', "b": 1}"#.to_string()
-//         );
-//         println!("[PASSED] test_tolerant_to_single_quoted_string_constants");
+        assert_eq!(
+            cut_after_js(r#"{"a": '}1', "b": 1}abcd"#).unwrap_or("".to_string()),
+            r#"{"a": '}1', "b": 1}"#.to_string()
+        );
+        println!("[PASSED] test_tolerant_to_single_quoted_string_constants");
 
-//         let str = "[-1816574795, '\",;/[;', function asdf() { a = 2/3; return a;}]";
-//         assert_eq!(
-//             cut_after_js(format!("{}abcd", str).as_str()).unwrap_or("".to_string()),
-//             str.to_string()
-//         );
-//         println!("[PASSED] test_tolerant_to_complex_single_quoted_string_constants");
+        let str = "[-1816574795, '\",;/[;', function asdf() { a = 2/3; return a;}]";
+        assert_eq!(
+            cut_after_js(format!("{}abcd", str).as_str()).unwrap_or("".to_string()),
+            str.to_string()
+        );
+        println!("[PASSED] test_tolerant_to_complex_single_quoted_string_constants");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": `}1`, "b": 1}abcd"#).unwrap_or("".to_string()),
-//             r#"{"a": `}1`, "b": 1}"#.to_string()
-//         );
-//         println!("[PASSED] test_tolerant_to_back_tick_quoted_string_constants");
+        assert_eq!(
+            cut_after_js(r#"{"a": `}1`, "b": 1}abcd"#).unwrap_or("".to_string()),
+            r#"{"a": `}1`, "b": 1}"#.to_string()
+        );
+        println!("[PASSED] test_tolerant_to_back_tick_quoted_string_constants");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
-//             r#"{"a": "}1", "b": 1}"#.to_string()
-//         );
-//         println!("[PASSED] test_tolerant_to_string_constants");
+        assert_eq!(
+            cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+            r#"{"a": "}1", "b": 1}"#.to_string()
+        );
+        println!("[PASSED] test_tolerant_to_string_constants");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": "\\"}1", "b": 1}abcd"#).unwrap_or("".to_string()),
-//             r#"{"a": "\\"}1", "b": 1}"#.to_string()
-//         );
-//         println!("[PASSED] test_tolerant_to_string_with_escaped_quoting");
+        assert_eq!(
+            cut_after_js(r#"{"a": "\"}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+            r#"{"a": "\"}1", "b": 1}"#.to_string()
+        );
+        println!("[PASSED] test_tolerant_to_string_with_escaped_quoting");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": "\\"}1", "b": 1, "c": /[0-9]}}\\/}/}abcd"#)
-//                 .unwrap_or("".to_string()),
-//             r#"{"a": "\\"}1", "b": 1, "c": /[0-9]}}\\/}/}"#.to_string()
-//         );
-//         println!("[PASSED] test_tolerant_to_string_with_regexes");
+        assert_eq!(
+            cut_after_js(r#"{"a": "\"}1", "b": 1, "c": /[0-9]}}\/}/}abcd"#)
+                .unwrap_or("".to_string()),
+            r#"{"a": "\"}1", "b": 1, "c": /[0-9]}}\/}/}"#.to_string()
+        );
+        println!("[PASSED] test_tolerant_to_string_with_regexes");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}abcd"#)
-//                 .unwrap_or("".to_string()),
-//             r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}"#.to_string()
-//         );
-//         println!("[PASSED] test_tolerant_to_string_with_regexes_in_arrays");
+        assert_eq!(
+            cut_after_js(r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}abcd"#)
+                .unwrap_or("".to_string()),
+            r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}"#.to_string()
+        );
+        println!("[PASSED] test_tolerant_to_string_with_regexes_in_arrays");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": "\\"}1", "b": 1, "c": [4/6, /[0-9]}}\\/}/]}abcd"#)
-//                 .unwrap_or("".to_string()),
-//             r#"{"a": "\\"}1", "b": 1, "c": [4/6, /[0-9]}}\\/}/]}"#.to_string()
-//         );
-//         println!("[PASSED] test_does_not_fail_for_division_followed_by_a_regex");
+        assert_eq!(
+            cut_after_js(r#"{"a": "\"}1", "b": 1, "c": [4/6, /[0-9]}}\/}/]}abcd"#)
+                .unwrap_or("".to_string()),
+            r#"{"a": "\"}1", "b": 1, "c": [4/6, /[0-9]}}\/}/]}"#.to_string()
+        );
+        println!("[PASSED] test_does_not_fail_for_division_followed_by_a_regex");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": "\\"1", "b": 1, "c": {"test": 1}}abcd"#)
-//                 .unwrap_or("".to_string()),
-//             r#"{"a": "\\"1", "b": 1, "c": {"test": 1}}"#.to_string()
-//         );
-//         println!("[PASSED] test_works_with_nested_objects");
+        assert_eq!(
+            cut_after_js(r#"{"a": "\"1", "b": 1, "c": {"test": 1}}abcd"#).unwrap_or("".to_string()),
+            r#"{"a": "\"1", "b": 1, "c": {"test": 1}}"#.to_string()
+        );
+        println!("[PASSED] test_works_with_nested_objects");
 
-//         let test_str = r#"{"a": "\\"1", "b": 1, "c": () => { try { /* do sth */ } catch (e) { a = [2+3] }; return 5}}"#;
-//         assert_eq!(
-//             cut_after_js(format!("{}abcd", test_str).as_str()).unwrap_or("".to_string()),
-//             test_str.to_string()
-//         );
-//         println!("[PASSED] test_works_with_try_catch");
+        let test_str = r#"{"a": "\"1", "b": 1, "c": () => { try { /* do sth */ } catch (e) { a = [2+3] }; return 5}}"#;
+        assert_eq!(
+            cut_after_js(format!("{}abcd", test_str).as_str()).unwrap_or("".to_string()),
+            test_str.to_string()
+        );
+        println!("[PASSED] test_works_with_try_catch");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": "\\"фыва", "b": 1, "c": {"test": 1}}abcd"#)
-//                 .unwrap_or("".to_string()),
-//             r#"{"a": "\\"фыва", "b": 1, "c": {"test": 1}}"#.to_string()
-//         );
-//         println!("[PASSED] test_works_with_utf");
+        assert_eq!(
+            cut_after_js(r#"{"a": "\"фыва", "b": 1, "c": {"test": 1}}abcd"#)
+                .unwrap_or("".to_string()),
+            r#"{"a": "\"фыва", "b": 1, "c": {"test": 1}}"#.to_string()
+        );
+        println!("[PASSED] test_works_with_utf");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}abcd"#)
-//                 .unwrap_or("".to_string()),
-//             r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}"#.to_string()
-//         );
-//         println!("[PASSED] test_works_with_backslashes_in_string");
+        assert_eq!(
+            cut_after_js(r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}abcd"#)
+                .unwrap_or("".to_string()),
+            r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}"#.to_string()
+        );
+        println!("[PASSED] test_works_with_backslashes_in_string");
 
-//         assert_eq!(
-//             cut_after_js(r#"{"text": "\\\\"};"#).unwrap_or("".to_string()),
-//             r#"{"text": "\\\\"}"#.to_string()
-//         );
-//         println!("[PASSED] test_works_with_backslashes_towards_end_of_string");
+        assert_eq!(
+            cut_after_js(r#"{"text": "\\\\"};"#).unwrap_or("".to_string()),
+            r#"{"text": "\\\\"}"#.to_string()
+        );
+        println!("[PASSED] test_works_with_backslashes_towards_end_of_string");
 
-//         assert_eq!(
-//             cut_after_js(r#"[{"a": 1}, {"b": 2}]abcd"#).unwrap_or("".to_string()),
-//             r#"[{"a": 1}, {"b": 2}]"#.to_string()
-//         );
-//         println!("[PASSED] test_works_with_array_as_start");
+        assert_eq!(
+            cut_after_js(r#"[{"a": 1}, {"b": 2}]abcd"#).unwrap_or("".to_string()),
+            r#"[{"a": 1}, {"b": 2}]"#.to_string()
+        );
+        println!("[PASSED] test_works_with_array_as_start");
 
-//         assert!(cut_after_js("abcd]}").is_none());
-//         println!("[PASSED] test_returns_error_when_not_beginning_with_bracket");
+        assert!(cut_after_js("abcd]}").is_none());
+        println!("[PASSED] test_returns_error_when_not_beginning_with_bracket");
 
-//         assert!(cut_after_js(r#"{"a": 1,{ "b": 1}"#).is_none());
-//         println!("[PASSED] test_returns_error_when_missing_closing_bracket");
-//     }
-// }
+        assert!(cut_after_js(r#"{"a": 1,{ "b": 1}"#).is_none());
+        println!("[PASSED] test_returns_error_when_missing_closing_bracket");
+    }
+}

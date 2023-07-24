@@ -4,7 +4,7 @@ use std::sync::Arc;
 use scraper::{Html, Selector};
 use xml_oxide::{sax::parser::Parser, sax::Event};
 
-use crate::constants::{BASE_URL, CUT_AFTER_JS, FORMATS};
+use crate::constants::{BASE_URL, FORMATS};
 use crate::info_extras::{get_media, get_related_videos};
 use crate::stream::{LiveStream, LiveStreamOptions, NonLiveStream, NonLiveStreamOptions, Stream};
 use crate::structs::{VideoError, VideoFormat, VideoInfo, VideoOptions};
@@ -189,20 +189,12 @@ impl Video {
             .and_then(|x| x.as_str())
             .map(|x| x.to_string());
 
-        let mut cut_after_js_script =
-            js_sandbox::Script::from_string(CUT_AFTER_JS).expect("cut_after_js function error");
-
         Ok(VideoInfo {
             dash_manifest_url,
             hls_manifest_url,
             formats: parse_video_formats(
                 &player_response,
-                get_functions(
-                    get_html5player(response.as_str()).unwrap(),
-                    client,
-                    &mut cut_after_js_script,
-                )
-                .await?,
+                get_functions(get_html5player(response.as_str()).unwrap(), client).await?,
             )
             .unwrap_or(vec![]),
             related_videos: get_related_videos(&initial_response).unwrap_or(vec![]),

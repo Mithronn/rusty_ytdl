@@ -1884,7 +1884,7 @@ dependencies = [
 
 [[package]]
 name = "rusty_ytdl"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "aes",
  "async-trait",
@@ -1906,6 +1906,7 @@ dependencies = [
  "serde_qs",
  "thiserror",
  "tokio",
+ "unicode-segmentation",
  "url",
  "urlencoding",
  "xml_oxide",
@@ -2494,6 +2495,12 @@ checksum = "5c5713f0fc4b5db668a2ac63cdb7bb4469d8c9fed047b1d0292cc7b0ce2ba921"
 dependencies = [
  "tinyvec",
 ]
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1dd624098567895118886609431a7c3b8f516e41d30e0643f03d94592a147e36"
 
 [[package]]
 name = "unicode-width"

@@ -1,6 +1,6 @@
 [package]
 name = "rusty_ytdl"
-version = "0.6.2"
+version = "0.6.3"
 authors = ["Mithronn"]
 edition = "2021"
 description = "A Rust library for Youtube video searcher and downloader"
@@ -50,6 +50,7 @@ async-trait = "0.1.68"
 aes = "0.8.2"
 cbc = { version = "0.1.2", features = ["std"] }
 hex = "0.4.3"
+unicode-segmentation = "1.10.1"
 
 [dev-dependencies]
 tokio = { version = "1.26.0", features = ["full"] }

@@ -1,4 +1,4 @@
-use crate::structs::EscapeSequenze;
+use crate::structs::EscapeSequence;
 use once_cell::sync::Lazy;
 
 pub const BASE_URL: &str = "https://www.youtube.com/watch?v=";
@@ -41,27 +41,27 @@ pub(crate) static IPV6_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
 pub(crate) static PARSE_INT_REGEX: Lazy<regex::Regex> =
     Lazy::new(|| regex::Regex::new(r#"(?m)^\s*((\-|\+)?[0-9]+)\s*"#).unwrap());
 
-pub(crate) static ESCAPING_SEQUENZES: Lazy<[EscapeSequenze; 4]> = Lazy::new(|| {
+pub(crate) static ESCAPING_SEQUENZES: Lazy<[EscapeSequence; 4]> = Lazy::new(|| {
     [
-        EscapeSequenze {
+        EscapeSequence {
             start: r#"""#.to_string(),
             end: r#"""#.to_string(),
             start_prefix: None,
         },
-        EscapeSequenze {
+        EscapeSequence {
             start: "'".to_string(),
             end: "'".to_string(),
             start_prefix: None,
         },
-        EscapeSequenze {
+        EscapeSequence {
             start: "`".to_string(),
             end: "`".to_string(),
             start_prefix: None,
         },
-        EscapeSequenze {
+        EscapeSequence {
             start: "/".to_string(),
             end: "/".to_string(),
-            start_prefix: Some(regex::Regex::new(r#"(^|[\[{:;,/])\s?$"#).expect("IMPOSSIBLE")),
+            start_prefix: Some(regex::Regex::new(r#"(?m)(^|[\[{:;,/])\s?$"#).expect("IMPOSSIBLE")),
         },
     ]
 });
