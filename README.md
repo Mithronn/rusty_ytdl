@@ -1,4 +1,4 @@
-# `<div align="center">` rusty_ytdl `</div>`
+# <div align="center"> rusty_ytdl </div>
 
 <div align="center">
 
