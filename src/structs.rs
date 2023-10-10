@@ -30,7 +30,7 @@ pub enum VideoSearchOptions {
     Audio,
     /// Custom filter
     #[display(fmt = "Custom")]
-    Custom(Arc<dyn Fn(&VideoFormat) -> bool>),
+    Custom(Arc<dyn Fn(&VideoFormat) -> bool + Sync + Send + 'static>),
 }
 
 impl std::fmt::Debug for VideoSearchOptions {
@@ -83,7 +83,7 @@ pub enum VideoQuality {
     #[display(fmt = "Custom")]
     Custom(
         VideoSearchOptions,
-        Arc<dyn Fn(&VideoFormat, &VideoFormat) -> std::cmp::Ordering>,
+        Arc<dyn Fn(&VideoFormat, &VideoFormat) -> std::cmp::Ordering + Sync + Send + 'static>,
     ),
 }
 
