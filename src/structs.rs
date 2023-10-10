@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     ops::{Bound, RangeBounds},
-    rc::Rc,
+    sync::Arc,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,7 +30,7 @@ pub enum VideoSearchOptions {
     Audio,
     /// Custom filter
     #[display(fmt = "Custom")]
-    Custom(Rc<dyn Fn(&VideoFormat) -> bool>),
+    Custom(Arc<dyn Fn(&VideoFormat) -> bool>),
 }
 
 impl std::fmt::Debug for VideoSearchOptions {
@@ -52,7 +52,7 @@ impl PartialEq for VideoSearchOptions {
             (VideoSearchOptions::Audio, VideoSearchOptions::Audio) => true,
             (VideoSearchOptions::Custom(a), VideoSearchOptions::Custom(b)) => {
                 // Compare the function pointer
-                Rc::ptr_eq(a, b)
+                Arc::ptr_eq(a, b)
             }
             _ => false,
         }
@@ -83,7 +83,7 @@ pub enum VideoQuality {
     #[display(fmt = "Custom")]
     Custom(
         VideoSearchOptions,
-        Rc<dyn Fn(&VideoFormat, &VideoFormat) -> std::cmp::Ordering>,
+        Arc<dyn Fn(&VideoFormat, &VideoFormat) -> std::cmp::Ordering>,
     ),
 }
 
@@ -112,7 +112,7 @@ impl PartialEq for VideoQuality {
             (VideoQuality::LowestVideo, VideoQuality::LowestVideo) => true,
             (VideoQuality::Custom(i, a), VideoQuality::Custom(j, b)) => {
                 // Compare the function pointer
-                Rc::ptr_eq(a, b) && i == j
+                Arc::ptr_eq(a, b) && i == j
             }
             _ => false,
         }
