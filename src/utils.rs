@@ -260,6 +260,9 @@ pub fn filter_formats(formats: &mut Vec<VideoFormat>, options: &VideoSearchOptio
         VideoSearchOptions::Video => {
             formats.retain(|x| (x.has_video && !x.has_audio) || x.is_live);
         }
+        VideoSearchOptions::Custom(func) => {
+            formats.retain(|x| func(x) || x.is_live);
+        }
         _ => {
             formats.retain(|x| (x.has_video && x.has_audio) || x.is_live);
         }
@@ -281,7 +284,7 @@ pub fn choose_format<'a>(
     }
 
     formats.sort_by(sort_formats);
-    match options.quality {
+    match &options.quality {
         VideoQuality::Highest => {
             filter_formats(&mut formats, filter);
 
@@ -342,6 +345,18 @@ pub fn choose_format<'a>(
             formats.sort_by(sort_formats_by_video);
 
             let return_format = formats.last();
+
+            if return_format.is_none() {
+                return Err(VideoError::FormatNotFound);
+            }
+            Ok(return_format.unwrap().clone())
+        }
+        VideoQuality::Custom(filter, func) => {
+            filter_formats(&mut formats, &filter);
+
+            formats.sort_by(|x, y| func(x, y));
+
+            let return_format = formats.get(0);
 
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
