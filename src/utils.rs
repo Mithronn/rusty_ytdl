@@ -352,7 +352,7 @@ pub fn choose_format<'a>(
             Ok(return_format.unwrap().clone())
         }
         VideoQuality::Custom(filter, func) => {
-            filter_formats(&mut formats, &filter);
+            filter_formats(&mut formats, filter);
 
             formats.sort_by(|x, y| func(x, y));
 

@@ -35,11 +35,11 @@ pub(crate) static DEFAULT_HEADERS: Lazy<reqwest::header::HeaderMap> = Lazy::new(
 });
 
 pub(crate) static IPV6_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r#"^(([0-9a-f]{1,4}:)(:[0-9a-f]{1,4}){1,6}|([0-9a-f]{1,4}:){1,2}(:[0-9a-f]{1,4}){1,5}|([0-9a-f]{1,4}:){1,3}(:[0-9a-f]{1,4}){1,4}|([0-9a-f]{1,4}:){1,4}(:[0-9a-f]{1,4}){1,3}|([0-9a-f]{1,4}:){1,5}(:[0-9a-f]{1,4}){1,2}|([0-9a-f]{1,4}:){1,6}(:[0-9a-f]{1,4})|([0-9a-f]{1,4}:){1,7}(([0-9a-f]{1,4})|:))/(1[0-1]\d|12[0-8]|\d{1,2})$"#).unwrap()
+    regex::Regex::new(r"^(([0-9a-f]{1,4}:)(:[0-9a-f]{1,4}){1,6}|([0-9a-f]{1,4}:){1,2}(:[0-9a-f]{1,4}){1,5}|([0-9a-f]{1,4}:){1,3}(:[0-9a-f]{1,4}){1,4}|([0-9a-f]{1,4}:){1,4}(:[0-9a-f]{1,4}){1,3}|([0-9a-f]{1,4}:){1,5}(:[0-9a-f]{1,4}){1,2}|([0-9a-f]{1,4}:){1,6}(:[0-9a-f]{1,4})|([0-9a-f]{1,4}:){1,7}(([0-9a-f]{1,4})|:))/(1[0-1]\d|12[0-8]|\d{1,2})$").unwrap()
 });
 
 pub(crate) static PARSE_INT_REGEX: Lazy<regex::Regex> =
-    Lazy::new(|| regex::Regex::new(r#"(?m)^\s*((\-|\+)?[0-9]+)\s*"#).unwrap());
+    Lazy::new(|| regex::Regex::new(r"(?m)^\s*((\-|\+)?[0-9]+)\s*").unwrap());
 
 pub(crate) static ESCAPING_SEQUENZES: Lazy<[EscapeSequence; 4]> = Lazy::new(|| {
     [
@@ -61,7 +61,7 @@ pub(crate) static ESCAPING_SEQUENZES: Lazy<[EscapeSequence; 4]> = Lazy::new(|| {
         EscapeSequence {
             start: "/".to_string(),
             end: "/".to_string(),
-            start_prefix: Some(regex::Regex::new(r#"(?m)(^|[\[{:;,/])\s?$"#).expect("IMPOSSIBLE")),
+            start_prefix: Some(regex::Regex::new(r"(?m)(^|[\[{:;,/])\s?$").expect("IMPOSSIBLE")),
         },
     ]
 });

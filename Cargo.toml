@@ -1,21 +1,15 @@
 [package]
 name = "rusty_ytdl"
-version = "0.6.3"
+version = "0.6.4"
 authors = ["Mithronn"]
 edition = "2021"
 description = "A Rust library for Youtube video searcher and downloader"
 repository = "https://github.com/Mithronn/rusty-ytdl"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-keywords = ["youtube", "downloader", "ytdl", "youtube-dl","searcher"]
-include = [
-    "src/**/*", "Cargo.toml",
-]
-exclude = [
-    "examples/**/*",
-    "tests/**/*",
-    ".github/**/*",
-]
+keywords = ["youtube", "downloader", "ytdl", "youtube-dl", "searcher"]
+include = ["src/**/*", "Cargo.toml"]
+exclude = ["examples/**/*", "tests/**/*", ".github/**/*"]
 categories = ["multimedia::video", "multimedia::audio"]
 
 [package.metadata.docs.rs]
@@ -27,7 +21,7 @@ members = [".", "cli"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = {version = "0.11.18", features = ["cookies","gzip"]}
+reqwest = { version = "0.11.18", features = ["cookies", "gzip"] }
 scraper = "0.16.0"
 serde = "1.0.158"
 serde_json = "1.0.94"
@@ -57,6 +51,12 @@ tokio = { version = "1.26.0", features = ["full"] }
 
 [features]
 default = ["search", "live"]
-live = ["tokio/rt", "tokio/rt-multi-thread", "tokio/time", "tokio/sync", "tokio/process"]
+live = [
+    "tokio/rt",
+    "tokio/rt-multi-thread",
+    "tokio/time",
+    "tokio/sync",
+    "tokio/process",
+]
 blocking = []
 search = []

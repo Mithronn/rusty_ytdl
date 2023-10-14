@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 #![allow(dead_code)]
 #![allow(unused_imports)]
+#![allow(clippy::type_complexity)]
 
 mod info;
 mod info_extras;
