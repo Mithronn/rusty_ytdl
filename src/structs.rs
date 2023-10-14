@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::ops::{Bound, RangeBounds};
+use std::{
+    ops::{Bound, RangeBounds},
+    sync::Arc,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VideoInfo {
@@ -14,7 +17,7 @@ pub struct VideoInfo {
     pub video_details: VideoDetails,
 }
 
-#[derive(Clone, PartialEq, Debug, derive_more::Display)]
+#[derive(Clone, derive_more::Display)]
 pub enum VideoSearchOptions {
     /// Video & Audio
     #[display(fmt = "Video & Audio")]
@@ -25,9 +28,38 @@ pub enum VideoSearchOptions {
     /// Only Audio
     #[display(fmt = "Audio")]
     Audio,
+    /// Custom filter
+    #[display(fmt = "Custom")]
+    Custom(Arc<dyn Fn(&VideoFormat) -> bool + Sync + Send + 'static>),
 }
 
-#[derive(Clone, PartialEq, Debug, derive_more::Display)]
+impl std::fmt::Debug for VideoSearchOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VideoSearchOptions::VideoAudio => write!(f, "VideoAudio"),
+            VideoSearchOptions::Video => write!(f, "Video"),
+            VideoSearchOptions::Audio => write!(f, "Audio"),
+            VideoSearchOptions::Custom(_) => write!(f, "Custom"),
+        }
+    }
+}
+
+impl PartialEq for VideoSearchOptions {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (VideoSearchOptions::VideoAudio, VideoSearchOptions::VideoAudio) => true,
+            (VideoSearchOptions::Video, VideoSearchOptions::Video) => true,
+            (VideoSearchOptions::Audio, VideoSearchOptions::Audio) => true,
+            (VideoSearchOptions::Custom(a), VideoSearchOptions::Custom(b)) => {
+                // Compare the function pointer
+                Arc::ptr_eq(a, b)
+            }
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, derive_more::Display)]
 pub enum VideoQuality {
     /// Highest Video & Audio
     #[display(fmt = "Highest")]
@@ -47,6 +79,44 @@ pub enum VideoQuality {
     /// Only Lowest Video
     #[display(fmt = "Lowest Video")]
     LowestVideo,
+    /// Custom ranking function and filter
+    #[display(fmt = "Custom")]
+    Custom(
+        VideoSearchOptions,
+        Arc<dyn Fn(&VideoFormat, &VideoFormat) -> std::cmp::Ordering + Sync + Send + 'static>,
+    ),
+}
+
+impl std::fmt::Debug for VideoQuality {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VideoQuality::Highest => write!(f, "Highest"),
+            VideoQuality::Lowest => write!(f, "Lowest"),
+            VideoQuality::HighestAudio => write!(f, "HighestAudio"),
+            VideoQuality::LowestAudio => write!(f, "LowestAudio"),
+            VideoQuality::HighestVideo => write!(f, "HighestVideo"),
+            VideoQuality::LowestVideo => write!(f, "LowestVideo"),
+            VideoQuality::Custom(filter, _) => write!(f, "Custom({filter:?})"),
+        }
+    }
+}
+
+impl PartialEq for VideoQuality {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (VideoQuality::Highest, VideoQuality::Highest) => true,
+            (VideoQuality::Lowest, VideoQuality::Lowest) => true,
+            (VideoQuality::HighestAudio, VideoQuality::HighestAudio) => true,
+            (VideoQuality::LowestAudio, VideoQuality::LowestAudio) => true,
+            (VideoQuality::HighestVideo, VideoQuality::HighestVideo) => true,
+            (VideoQuality::LowestVideo, VideoQuality::LowestVideo) => true,
+            (VideoQuality::Custom(i, a), VideoQuality::Custom(j, b)) => {
+                // Compare the function pointer
+                Arc::ptr_eq(a, b) && i == j
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Video search and download options
