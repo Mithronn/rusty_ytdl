@@ -831,8 +831,8 @@ pub fn clean_video_details(
         dislikes: get_dislikes(initial_response),
 
         video_url: format!("{BASE_URL}{id}"),
-        storyboards: get_storyboards(player_response).unwrap_or(vec![]),
-        chapters: get_chapters(initial_response).unwrap_or(vec![]),
+        storyboards: get_storyboards(player_response).unwrap_or_default(),
+        chapters: get_chapters(initial_response).unwrap_or_default(),
 
         embed: Embed {
             flash_secure_url: embed_object
@@ -1282,8 +1282,8 @@ pub async fn get_html(
     url: impl Into<String>,
     headers: Option<&reqwest::header::HeaderMap>,
 ) -> Result<String, VideoError> {
-    let request = if headers.is_some() {
-        client.get(url.into()).headers(headers.unwrap().clone())
+    let request = if let Some(some_headers) = headers {
+        client.get(url.into()).headers(some_headers.clone())
     } else {
         client.get(url.into())
     }
@@ -1387,7 +1387,7 @@ pub fn normalize_ip(ip: impl Into<String>) -> Vec<u16> {
 pub fn make_absolute_url(base: &str, url: &str) -> Result<url::Url, VideoError> {
     match url::Url::parse(url) {
         Ok(u) => Ok(u),
-        Err(e) if e == url::ParseError::RelativeUrlWithoutBase => {
+        Err(url::ParseError::RelativeUrlWithoutBase) => {
             let base_url = url::Url::parse(base).map_err(VideoError::URLParseError)?;
             Ok(base_url.join(url)?)
         }

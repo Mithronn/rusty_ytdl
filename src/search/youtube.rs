@@ -103,10 +103,10 @@ impl YouTube {
         let default_options = SearchOptions::default();
 
         // if SearchOptions is None get default
-        let options: &SearchOptions = if search_options.is_none() {
-            &default_options
+        let options: &SearchOptions = if let Some(some_search_options) = search_options {
+            some_search_options
         } else {
-            search_options.unwrap()
+            &default_options
         };
 
         let query: String = query.into();
@@ -181,10 +181,10 @@ impl YouTube {
         query: impl Into<String>,
         search_options: Option<&SearchOptions>,
     ) -> Result<Option<SearchResult>, VideoError> {
-        let search_options = if search_options.is_some() {
+        let search_options = if let Some(some_search_options) = search_options {
             SearchOptions {
                 limit: 1,
-                ..search_options.unwrap().clone()
+                ..some_search_options.clone()
             }
         } else {
             SearchOptions {
@@ -435,9 +435,9 @@ impl Playlist {
     ) -> Result<Self, VideoError> {
         let url: String = url.into();
         let default_options = PlaylistSearchOptions::default();
-        let options = if options.is_some() {
+        let options = if let Some(some_options) = options {
             drop(default_options);
-            options.unwrap()
+            some_options
         } else {
             &default_options
         };

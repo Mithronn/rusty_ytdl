@@ -196,8 +196,8 @@ impl Video {
                 &player_response,
                 get_functions(get_html5player(response.as_str()).unwrap(), client).await?,
             )
-            .unwrap_or(vec![]),
-            related_videos: get_related_videos(&initial_response).unwrap_or(vec![]),
+            .unwrap_or_default(),
+            related_videos: get_related_videos(&initial_response).unwrap_or_default(),
             video_details,
         })
     }

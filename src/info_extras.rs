@@ -307,7 +307,7 @@ pub fn parse_related_video(
                                 })
                                 .collect::<Vec<Thumbnail>>()
                         })
-                        .unwrap_or(vec![])
+                        .unwrap_or_default()
                 } else {
                     vec![]
                 },
@@ -375,7 +375,7 @@ pub fn parse_related_video(
                         })
                         .collect::<Vec<Thumbnail>>()
                 })
-                .unwrap_or(vec![])
+                .unwrap_or_default()
         } else {
             vec![]
         },
