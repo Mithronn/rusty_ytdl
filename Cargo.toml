@@ -21,7 +21,7 @@ members = [".", "cli"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { version = "0.11.18", features = ["cookies", "gzip"] }
+reqwest = { version = "0.11.18", features = ["cookies", "gzip"], default-features = false }
 scraper = "0.16.0"
 serde = "1.0.158"
 serde_json = "1.0.94"
@@ -50,7 +50,7 @@ unicode-segmentation = "1.10.1"
 tokio = { version = "1.26.0", features = ["full"] }
 
 [features]
-default = ["search", "live"]
+default = ["search", "live", "default-tls"]
 live = [
     "tokio/rt",
     "tokio/rt-multi-thread",
@@ -60,3 +60,6 @@ live = [
 ]
 blocking = []
 search = []
+default-tls = [
+    "reqwest/default-tls",
+]
