@@ -1,9 +1,14 @@
 use crate::block_async;
+#[cfg(feature = "live")]
+use crate::blocking::stream::LiveStream;
+use crate::blocking::stream::NonLiveStream;
 use crate::structs::{VideoError, VideoInfo, VideoOptions};
 use crate::utils::choose_format;
 use crate::Video as AsyncVideo;
 
-use super::stream::{LiveStream, LiveStreamOptions, NonLiveStream, NonLiveStreamOptions, Stream};
+#[cfg(feature = "live")]
+use super::stream::LiveStreamOptions;
+use super::stream::{NonLiveStreamOptions, Stream};
 
 #[derive(Clone, Debug, derive_more::Display, PartialEq, Eq)]
 pub struct Video(AsyncVideo);
@@ -65,16 +70,23 @@ impl Video {
 
         // Only check for HLS formats for live streams
         if format.is_hls {
-            let stream = LiveStream::new(LiveStreamOptions {
-                client: Some(client.clone()),
-                stream_url: link,
-            });
+            #[cfg(feature = "live")]
+            {
+                let stream = LiveStream::new(LiveStreamOptions {
+                    client: Some(client.clone()),
+                    stream_url: link,
+                });
 
-            if stream.is_err() {
-                return Err(stream.err().unwrap());
+                if stream.is_err() {
+                    return Err(stream.err().unwrap());
+                }
+
+                return Ok(Box::new(stream.unwrap()));
             }
-
-            return Ok(Box::new(stream.unwrap()));
+            #[cfg(not(feature = "live"))]
+            {
+                return Err(VideoError::LiveStreamNotSupported);
+            }
         }
 
         let dl_chunk_size = if options.download_options.dl_chunk_size.is_some() {

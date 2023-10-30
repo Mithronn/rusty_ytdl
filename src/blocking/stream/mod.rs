@@ -1,3 +1,5 @@
 mod streams;
 
-pub use streams::{LiveStream, LiveStreamOptions, NonLiveStream, NonLiveStreamOptions, Stream};
+#[cfg(feature = "live")]
+pub use streams::{LiveStream, LiveStreamOptions};
+pub use streams::{NonLiveStream, NonLiveStreamOptions, Stream};

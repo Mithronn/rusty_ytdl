@@ -6,7 +6,10 @@ use xml_oxide::{sax::parser::Parser, sax::Event};
 
 use crate::constants::{BASE_URL, FORMATS};
 use crate::info_extras::{get_media, get_related_videos};
-use crate::stream::{LiveStream, LiveStreamOptions, NonLiveStream, NonLiveStreamOptions, Stream};
+#[cfg(feature = "live")]
+use crate::stream::{LiveStream, LiveStreamOptions};
+use crate::stream::{NonLiveStream, NonLiveStreamOptions, Stream};
+
 use crate::structs::{VideoError, VideoFormat, VideoInfo, VideoOptions};
 
 use crate::utils::{
@@ -336,16 +339,23 @@ impl Video {
 
         // Only check for HLS formats for live streams
         if format.is_hls {
-            let stream = LiveStream::new(LiveStreamOptions {
-                client: Some(client.clone()),
-                stream_url: link,
-            });
+            #[cfg(feature = "live")]
+            {
+                let stream = LiveStream::new(LiveStreamOptions {
+                    client: Some(client.clone()),
+                    stream_url: link,
+                });
 
-            if stream.is_err() {
-                return Err(stream.err().unwrap());
+                if stream.is_err() {
+                    return Err(stream.err().unwrap());
+                }
+
+                return Ok(Box::new(stream.unwrap()));
             }
-
-            return Ok(Box::new(stream.unwrap()));
+            #[cfg(not(feature = "live"))]
+            {
+                return Err(VideoError::LiveStreamNotSupported);
+            }
         }
 
         let dl_chunk_size = if self.options.download_options.dl_chunk_size.is_some() {
