@@ -251,6 +251,9 @@ pub enum VideoError {
     /// Child process error
     #[error("Process Error: {0}")]
     ChildProcessError(String),
+    /// Downloading live streams not supported, compile with `live` feature to enable
+    #[error("Downloading live streams not supported, compile with `live` feature to enable")]
+    LiveStreamNotSupported,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
