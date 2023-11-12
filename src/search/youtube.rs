@@ -199,7 +199,7 @@ impl YouTube {
             return Err(res.err().unwrap());
         }
 
-        Ok(res.unwrap().get(0).cloned())
+        Ok(res.unwrap().first().cloned())
     }
 
     async fn innertube_key(&self) -> String {

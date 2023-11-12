@@ -1,6 +1,7 @@
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 use urlencoding::decode;
 
@@ -84,9 +85,15 @@ pub fn parse_video_formats(
             .as_array()?;
         let mut formats = [&formats[..], &adaptive_formats[..]].concat();
 
+        let mut n_transform_cache: HashMap<String, String> = HashMap::new();
+
         for format in &mut formats {
             format.as_object_mut().map(|x| {
-                let new_url = set_download_url(&mut serde_json::json!(x), format_functions.clone());
+                let new_url = set_download_url(
+                    &mut serde_json::json!(x),
+                    format_functions.clone(),
+                    &mut n_transform_cache,
+                );
 
                 // Delete unnecessary cipher, signatureCipher
                 x.remove("signatureCipher");
@@ -288,7 +295,7 @@ pub fn choose_format<'a>(
         VideoQuality::Highest => {
             filter_formats(&mut formats, filter);
 
-            let return_format = formats.get(0);
+            let return_format = formats.first();
 
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
@@ -309,7 +316,7 @@ pub fn choose_format<'a>(
             filter_formats(&mut formats, &VideoSearchOptions::Audio);
             formats.sort_by(sort_formats_by_audio);
 
-            let return_format = formats.get(0);
+            let return_format = formats.first();
 
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
@@ -332,7 +339,7 @@ pub fn choose_format<'a>(
             filter_formats(&mut formats, &VideoSearchOptions::Video);
             formats.sort_by(sort_formats_by_video);
 
-            let return_format = formats.get(0);
+            let return_format = formats.first();
 
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
@@ -356,7 +363,7 @@ pub fn choose_format<'a>(
 
             formats.sort_by(|x, y| func(x, y));
 
-            let return_format = formats.get(0);
+            let return_format = formats.first();
 
             if return_format.is_none() {
                 return Err(VideoError::FormatNotFound);
@@ -505,6 +512,7 @@ pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
 pub fn set_download_url(
     format: &mut serde_json::Value,
     functions: Vec<(String, String)>,
+    n_transform_cache: &mut HashMap<String, String>,
 ) -> serde_json::Value {
     let empty_string_serde_value = serde_json::json!("");
     #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -516,7 +524,7 @@ pub fn set_download_url(
     }
 
     let empty_script = ("".to_string(), "".to_string());
-    let decipher_script_string = functions.get(0).unwrap_or(&empty_script);
+    let decipher_script_string = functions.first().unwrap_or(&empty_script);
     let n_transform_script_string = functions.get(1).unwrap_or(&empty_script);
 
     // println!(
@@ -537,7 +545,10 @@ pub fn set_download_url(
             }
         }
 
-        let decipher_script = js_sandbox::Script::from_string(decipher_script_string.1.as_str());
+        let mut context = boa_engine::Context::default();
+        let decipher_script = context.eval(boa_engine::Source::from_bytes(
+            decipher_script_string.1.as_str(),
+        ));
 
         if decipher_script.is_err() {
             if args.get("url").is_none() {
@@ -548,10 +559,11 @@ pub fn set_download_url(
             }
         }
 
-        let result = decipher_script.unwrap().call(
-            decipher_script_string.0.as_str(),
-            (&args.get("s").and_then(|x| x.as_str()).unwrap_or(""),),
-        );
+        let result = context.eval(boa_engine::Source::from_bytes(&format!(
+            r#"{func_name}("{args}")"#,
+            func_name = decipher_script_string.0.as_str(),
+            args = args.get("s").and_then(|x| x.as_str()).unwrap_or("")
+        )));
 
         if result.is_err() {
             if args.get("url").is_none() {
@@ -562,7 +574,35 @@ pub fn set_download_url(
             }
         }
 
-        let result: String = result.unwrap();
+        let is_result_string = result.as_ref().unwrap().as_string();
+
+        if is_result_string.is_none() {
+            if args.get("url").is_none() {
+                return url.to_string();
+            } else {
+                let args_url = args.get("url").and_then(|x| x.as_str()).unwrap_or("");
+                return args_url.to_string();
+            }
+        }
+
+        let convert_result_to_rust_string = is_result_string.unwrap().to_std_string();
+
+        if convert_result_to_rust_string.is_err() {
+            if args.get("url").is_none() {
+                return url.to_string();
+            } else {
+                let args_url = args.get("url").and_then(|x| x.as_str()).unwrap_or("");
+                return args_url.to_string();
+            }
+        }
+
+        let result = convert_result_to_rust_string.unwrap();
+
+        // println!(
+        //     "Decipher: {:?} {:?}",
+        //     args.get("s").and_then(|x| x.as_str()).unwrap_or(""),
+        //     result
+        // );
 
         let return_url = url::Url::parse(args.get("url").and_then(|x| x.as_str()).unwrap_or(""));
 
@@ -605,37 +645,68 @@ pub fn set_download_url(
         return_url.to_string()
     }
 
-    fn ncode(url: &str, n_transform_script_string: &(String, String)) -> String {
+    fn ncode(
+        url: &str,
+        n_transform_script_string: &(String, String),
+        n_transfrom_cache: &mut HashMap<String, String>,
+    ) -> String {
         let components: serde_json::value::Map<String, serde_json::Value> =
             serde_qs::from_str(&decode(url).unwrap_or(std::borrow::Cow::Borrowed(url))).unwrap();
 
-        if components.get("n").is_none() || n_transform_script_string.1.is_empty() {
+        if components.get("n").is_none()
+            || components.get("n").and_then(|x| x.as_str()).is_none()
+            || n_transform_script_string.1.is_empty()
+        {
             return url.to_string();
         }
 
-        let n_transform_script =
-            js_sandbox::Script::from_string(n_transform_script_string.1.as_str());
+        let n_transform_result;
 
-        if n_transform_script.is_err() {
-            return url.to_string();
+        let n_transform_value = components.get("n").and_then(|x| x.as_str()).unwrap_or("");
+
+        // println!("{:?}", n_transfrom_cache);
+
+        if let Some(&result) = n_transfrom_cache.get(n_transform_value).as_ref() {
+            n_transform_result = result.clone();
+        } else {
+            let mut context = boa_engine::Context::default();
+            let n_transform_script = context.eval(boa_engine::Source::from_bytes(
+                n_transform_script_string.1.as_str(),
+            ));
+
+            if n_transform_script.is_err() {
+                return url.to_string();
+            }
+
+            let result = context.eval(boa_engine::Source::from_bytes(&format!(
+                r#"{func_name}("{args}")"#,
+                func_name = n_transform_script_string.0.as_str(),
+                args = n_transform_value
+            )));
+
+            if result.is_err() {
+                return url.to_string();
+            }
+
+            let is_result_string = result.as_ref().unwrap().as_string();
+
+            if is_result_string.is_none() {
+                return url.to_string();
+            }
+
+            let convert_result_to_rust_string = is_result_string.unwrap().to_std_string();
+
+            if convert_result_to_rust_string.is_err() {
+                return url.to_string();
+            }
+
+            let result = convert_result_to_rust_string.unwrap();
+
+            // println!("N Transform: {:?} {:?}", n_transform_value, result);
+
+            n_transfrom_cache.insert(n_transform_value.to_owned(), result.clone());
+            n_transform_result = result;
         }
-
-        let result = n_transform_script.unwrap().call(
-            n_transform_script_string.0.as_str(),
-            (&components.get("n").and_then(|x| x.as_str()).unwrap_or(""),),
-        );
-
-        if result.is_err() {
-            return url.to_string();
-        }
-
-        let result: String = result.unwrap();
-
-        // println!(
-        //     "{:?} {:?}",
-        //     components.get("n").and_then(|x| x.as_str()).unwrap_or(""),
-        //     result
-        // );
 
         let return_url = url::Url::parse(url);
 
@@ -649,7 +720,7 @@ pub fn set_download_url(
             .query_pairs()
             .map(|(name, value)| {
                 if name == "n" {
-                    (name.into_owned(), result.to_string())
+                    (name.into_owned(), n_transform_result.to_string())
                 } else {
                     (name.into_owned(), value.into_owned())
                 }
@@ -681,13 +752,14 @@ pub fn set_download_url(
             "url".to_string(),
             serde_json::json!(&ncode(
                 decipher(url, decipher_script_string).as_str(),
-                n_transform_script_string
+                n_transform_script_string,
+                n_transform_cache
             )),
         );
     } else {
         return_format.insert(
             "url".to_string(),
-            serde_json::json!(&ncode(url, n_transform_script_string)),
+            serde_json::json!(&ncode(url, n_transform_script_string, n_transform_cache)),
         );
     }
 
@@ -786,7 +858,7 @@ pub fn get_text(obj: &serde_json::Value) -> &serde_json::Value {
                 x.get("runs").and_then(|c| {
                     c.as_array()
                         .unwrap()
-                        .get(0)
+                        .first()
                         .and_then(|d| d.as_object().and_then(|f| f.get("text")))
                 })
             } else {
@@ -1366,7 +1438,7 @@ pub fn normalize_ip(ip: impl Into<String>) -> Vec<u16> {
         .collect::<Vec<Vec<&str>>>();
 
     let empty_array = vec![];
-    let part_start = parts.clone().get(0).unwrap_or(&empty_array).clone();
+    let part_start = parts.clone().first().unwrap_or(&empty_array).clone();
     let mut part_end = parts.clone().get(1).unwrap_or(&empty_array).clone();
 
     part_end.reverse();

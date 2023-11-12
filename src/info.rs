@@ -249,9 +249,7 @@ impl Video {
             let unformated_formats = get_m3u8(url, client).await;
 
             // Skip if error occured
-            if unformated_formats.is_ok() {
-                let unformated_formats = unformated_formats.expect("IMPOSSIBLE");
-
+            if let Ok(unformated_formats) = unformated_formats {
                 let default_formats = FORMATS.as_object().expect("IMPOSSIBLE");
                 // Push formated infos to formats
                 for (itag, url) in unformated_formats {
@@ -490,8 +488,7 @@ async fn get_dash_manifest(
                         if representation.contains_key("id") {
                             let itag = representation.get("id").unwrap();
                             let itag = itag.parse::<i32>();
-                            if itag.is_ok() {
-                                let itag = itag.unwrap();
+                            if let Ok(itag) = itag {
                                 let mut format = serde_json::json!({
                                     "itag": itag,
                                     "bitrate": representation.get("bandwith").and_then(|x| x.parse::<i32>().ok()).unwrap_or(0),

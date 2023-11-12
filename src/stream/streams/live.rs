@@ -211,7 +211,7 @@ impl Stream for LiveStream {
             return Ok(Some(vec![]));
         }
 
-        let first_segment = segments.get(0).unwrap();
+        let first_segment = segments.first().unwrap();
 
         let headers = DEFAULT_HEADERS.clone();
 

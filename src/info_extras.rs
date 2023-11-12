@@ -447,7 +447,7 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                     .and_then(|x| x.get("contents"))
                     .and_then(|x| x.as_array())
                     .unwrap_or(&empty_serde_object_array)
-                    .get(0)
+                    .first()
                     .unwrap_or(&empty_serde_object);
 
                 let runs = contents.get("runs");
@@ -459,7 +459,7 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                     && runs
                         .unwrap_or(&empty_serde_object)
                         .as_array()
-                        .and_then(|x| x.get(0))
+                        .and_then(|x| x.first())
                         .and_then(|x| x.get("navigationEndpoint"))
                         .is_some()
                 {
@@ -467,7 +467,7 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                         .unwrap_or(&empty_serde_array)
                         .as_array()
                         .unwrap_or(&empty_serde_object_array)
-                        .get(0)
+                        .first()
                         .and_then(|x| x.get("navigationEndpoint"))
                         .and_then(|x| x.get("commandMetadata"))
                         .and_then(|x| x.get("webCommandMetadata"))

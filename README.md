@@ -158,5 +158,5 @@ Or add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rusty_ytdl = "0.6.4"
+rusty_ytdl = "0.6.5"
 ```
