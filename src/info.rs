@@ -13,9 +13,9 @@ use crate::stream::{NonLiveStream, NonLiveStreamOptions, Stream};
 use crate::structs::{VideoError, VideoFormat, VideoInfo, VideoOptions};
 
 use crate::utils::{
-    add_format_meta, choose_format, clean_video_details, get_functions, get_html, get_html5player,
-    get_random_v6_ip, get_video_id, is_not_yet_broadcasted, is_play_error, is_private_video,
-    is_rental, parse_video_formats, sort_formats,
+    add_format_meta, between, choose_format, clean_video_details, get_functions, get_html,
+    get_html5player, get_random_v6_ip, get_video_id, is_not_yet_broadcasted, is_play_error,
+    is_private_video, is_rental, parse_video_formats, sort_formats,
 };
 
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
@@ -129,7 +129,7 @@ impl Video {
         let (player_response, initial_response): (serde_json::Value, serde_json::Value) = {
             let document = Html::parse_document(&response);
             let scripts_selector = Selector::parse("script").unwrap();
-            let mut player_response_string = document
+            let player_response_string = document
                 .select(&scripts_selector)
                 .filter(|x| x.inner_html().contains("var ytInitialPlayerResponse ="))
                 .map(|x| x.inner_html().replace("var ytInitialPlayerResponse =", ""))
@@ -146,12 +146,17 @@ impl Video {
                 .trim()
                 .to_string();
 
-            // remove json objects' last element (;)
-            player_response_string.pop();
+            // remove json object last element (;)
             initial_response_string.pop();
 
-            let player_response: serde_json::Value =
-                serde_json::from_str(&player_response_string).unwrap();
+            let player_response: serde_json::Value = serde_json::from_str(
+                format!(
+                    "{{{}}}}}}}",
+                    between(player_response_string.as_str(), "{", "}}};")
+                )
+                .as_str(),
+            )
+            .unwrap();
             let initial_response: serde_json::Value =
                 serde_json::from_str(&initial_response_string).unwrap();
 

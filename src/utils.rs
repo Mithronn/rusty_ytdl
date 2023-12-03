@@ -1549,7 +1549,7 @@ pub fn merge(a: &mut serde_json::Value, b: &serde_json::Value) {
 //     return_str
 // }
 
-fn between<'a>(haystack: &'a str, left: &'a str, right: &'a str) -> &'a str {
+pub(crate) fn between<'a>(haystack: &'a str, left: &'a str, right: &'a str) -> &'a str {
     let pos: usize;
 
     if let Some(matched) = haystack.find(left) {

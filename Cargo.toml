@@ -1,6 +1,6 @@
 [package]
 name = "rusty_ytdl"
-version = "0.6.5"
+version = "0.6.6"
 authors = ["Mithronn"]
 edition = "2021"
 description = "A Rust library for Youtube video searcher and downloader"
