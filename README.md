@@ -4,6 +4,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/rusty_ytdl.svg?style=for-the-badge&logo=rust)](https://crates.io/crates/rusty_ytdl)
 [![Released API docs](https://img.shields.io/badge/docs.rs-rusty__ytdl-C36241?style=for-the-badge&logo=docs.rs)](https://docs.rs/rusty_ytdl)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FMithronn%2Frusty_ytdl.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FMithronn%2Frusty_ytdl?ref=badge_shield)
 
 </div>
 
@@ -160,3 +161,7 @@ Or add the following to your `Cargo.toml` file:
 [dependencies]
 rusty_ytdl = "0.6.6"
 ```
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FMithronn%2Frusty_ytdl.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FMithronn%2Frusty_ytdl?ref=badge_large)
