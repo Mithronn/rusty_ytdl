@@ -193,13 +193,9 @@ impl YouTube {
             }
         };
 
-        let res = self.search(query, Some(&search_options)).await;
+        let res = self.search(query, Some(&search_options)).await?;
 
-        if res.is_err() {
-            return Err(res.err().unwrap());
-        }
-
-        Ok(res.unwrap().first().cloned())
+        Ok(res.first().cloned())
     }
 
     async fn innertube_key(&self) -> String {

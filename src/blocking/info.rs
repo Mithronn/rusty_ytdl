@@ -124,13 +124,9 @@ impl Video {
             dl_chunk_size,
             start,
             end,
-        });
+        })?;
 
-        if stream.is_err() {
-            return Err(stream.err().unwrap());
-        }
-
-        Ok(Box::new(stream.unwrap()))
+        Ok(Box::new(stream))
     }
 
     /// Download video directly to the file

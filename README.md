@@ -20,7 +20,6 @@ Download videos **blazing-fast** without getting stuck on Youtube download speed
 ## Roadmap
 
 - [ ] ffmpeg feature
-- [ ] CLI
 - [ ] benchmarks
 
 ## Features
@@ -29,6 +28,7 @@ Download videos **blazing-fast** without getting stuck on Youtube download speed
 - Search with query (Video, Playlist, Channel)
 - Blocking and asynchronous API
 - Proxy, IPv6, and cookie support on request
+- [CLI](https://crates.io/crates/rusty_ytdl-cli)
 
 # Usage
 

@@ -1,25 +1,40 @@
 [package]
 name = "rusty_ytdl-cli"
-version = "0.6.1"
+version = "1.0.0"
 authors = ["Mithronn"]
 edition = "2021"
 description = "A CLI for rusty_ytdl"
-keywords = ["youtube", "downloader", "ytdl", "youtube-dl","searcher"]
+keywords = ["youtube", "downloader", "ytdl", "youtube-dl", "searcher"]
 license = "MIT OR Apache-2.0"
 readme = "../README.md"
 repository = "https://github.com/Mithronn/rusty-ytdl"
-include = [
-    "src/**/*", "Cargo.toml",
+documentation = "https://docs.rs/rusty_ytdl"
+include = ["src/**/*", "Cargo.toml"]
+categories = [
+    "multimedia::video",
+    "multimedia::audio",
+    "command-line-interface",
 ]
+
 
 [[bin]]
 name = "rusty_ytdl"
 path = "src/main.rs"
 
 [dependencies]
-clap = "4.3.0"
-tokio = { version = "1.28.2", features = ["rt-multi-thread", "macros"] }
-# rusty_ytdl = { version = "0.6.1", features = ["blocking"]}
-rusty_ytdl = { path = "../"}
-colored = "2.0.0"
+anyhow = "1.0.79"
+clap = { version = "4.3.0", features = ["derive", "wrap_help"] }
+tokio = { version = "1.28.2", features = [
+    "rt-multi-thread",
+    "macros",
+    "io-std",
+] }
+log = "0.4.20"
+rusty_ytdl = { path = "..", version = "0.6.6" }
+colored = { version = "2.0.0" }
 indicatif = "0.17.4"
+fern = { version = "0.6.2", features = ["colored"] }
+serde = "1.0.158"
+serde_json = "1.0.94"
+serde_yaml = "0.9.30"
+bitflags = "2.4.1"

@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use scraper::{Html, Selector};
-use xml_oxide::{sax::parser::Parser, sax::Event};
+
+// Disabled due to not using DASHMPD
+//
+// use xml_oxide::{sax::parser::Parser, sax::Event};
 
 use crate::constants::{BASE_URL, FORMATS};
 use crate::info_extras::{get_media, get_related_videos};
@@ -399,13 +402,9 @@ impl Video {
             dl_chunk_size,
             start,
             end,
-        });
+        })?;
 
-        if stream.is_err() {
-            return Err(stream.err().unwrap());
-        }
-
-        Ok(Box::new(stream.unwrap()))
+        Ok(Box::new(stream))
     }
 
     /// Download video directly to the file
@@ -445,122 +444,122 @@ impl Video {
     }
 }
 
-#[allow(dead_code)]
-async fn get_dash_manifest(
-    url: &str,
-    client: &reqwest_middleware::ClientWithMiddleware,
-) -> Result<Vec<serde_json::Value>, VideoError> {
-    let base_url = url::Url::parse(BASE_URL).expect("BASE_URL corrapt");
-    let base_url_host = base_url.host_str().expect("BASE_URL host corrapt");
+// #[allow(dead_code)]
+// async fn get_dash_manifest(
+//     url: &str,
+//     client: &reqwest_middleware::ClientWithMiddleware,
+// ) -> Result<Vec<serde_json::Value>, VideoError> {
+//     let base_url = url::Url::parse(BASE_URL).expect("BASE_URL corrapt");
+//     let base_url_host = base_url.host_str().expect("BASE_URL host corrapt");
 
-    let url = url::Url::parse(url)
-        .and_then(|mut x| {
-            let set_host_result = x.set_host(Some(base_url_host));
-            if set_host_result.is_err() {
-                return Err(set_host_result.expect_err("How can be possible"));
-            }
-            Ok(x)
-        })
-        .map(|x| x.as_str().to_string())
-        .unwrap_or("".to_string());
+//     let url = url::Url::parse(url)
+//         .and_then(|mut x| {
+//             let set_host_result = x.set_host(Some(base_url_host));
+//             if set_host_result.is_err() {
+//                 return Err(set_host_result.expect_err("How can be possible"));
+//             }
+//             Ok(x)
+//         })
+//         .map(|x| x.as_str().to_string())
+//         .unwrap_or("".to_string());
 
-    let body = get_html(client, &url, None).await?;
+//     let body = get_html(client, &url, None).await?;
 
-    let mut parser = Parser::from_reader(body.as_bytes());
+//     let mut parser = Parser::from_reader(body.as_bytes());
 
-    let mut formats: Vec<serde_json::Value> = vec![];
-    let mut adaptation_set: HashMap<String, String> = HashMap::default();
+//     let mut formats: Vec<serde_json::Value> = vec![];
+//     let mut adaptation_set: HashMap<String, String> = HashMap::default();
 
-    loop {
-        let res = parser.read_event();
+//     loop {
+//         let res = parser.read_event();
 
-        match res {
-            Ok(event) => match event {
-                Event::EndDocument => {
-                    break;
-                }
-                Event::StartElement(node) => {
-                    if node.name.to_lowercase() == "ADAPTATIONSET".to_lowercase() {
-                        adaptation_set = node
-                            .attributes()
-                            .map(|x| (x.name.to_lowercase(), x.value.to_lowercase()))
-                            .collect();
-                    } else if node.name.to_lowercase() == "REPRESENTATION".to_lowercase() {
-                        let representation: HashMap<String, String> = node
-                            .attributes()
-                            .map(|x| (x.name.to_lowercase(), x.value.to_lowercase()))
-                            .collect();
-                        if representation.contains_key("id") {
-                            let itag = representation.get("id").unwrap();
-                            let itag = itag.parse::<i32>();
-                            if let Ok(itag) = itag {
-                                let mut format = serde_json::json!({
-                                    "itag": itag,
-                                    "bitrate": representation.get("bandwith").and_then(|x| x.parse::<i32>().ok()).unwrap_or(0),
-                                    "mimeType": format!(r#"{}; codecs="{}""#,adaptation_set.get("mimetype").map(|x| x.as_str()).unwrap_or(""),representation.get("codecs").map(|x| x.as_str()).unwrap_or(""))
-                                });
-                                let format_as_object_mut =
-                                    format.as_object_mut().expect("IMPOSSIBLE");
-                                if representation.contains_key("height") {
-                                    format_as_object_mut.insert(
-                                        "width".to_string(),
-                                        serde_json::Value::Number(
-                                            representation
-                                                .get("width")
-                                                .and_then(|x| x.parse::<i32>().ok())
-                                                .unwrap_or(0)
-                                                .into(),
-                                        ),
-                                    );
-                                    format_as_object_mut.insert(
-                                        "height".to_string(),
-                                        serde_json::Value::Number(
-                                            representation
-                                                .get("height")
-                                                .and_then(|x| x.parse::<i32>().ok())
-                                                .unwrap_or(0)
-                                                .into(),
-                                        ),
-                                    );
-                                    format_as_object_mut.insert(
-                                        "fps".to_string(),
-                                        serde_json::Value::Number(
-                                            representation
-                                                .get("framerate")
-                                                .and_then(|x| x.parse::<i32>().ok())
-                                                .unwrap_or(0)
-                                                .into(),
-                                        ),
-                                    );
-                                } else {
-                                    format_as_object_mut.insert(
-                                        "audioSampleRate".to_string(),
-                                        serde_json::Value::Number(
-                                            representation
-                                                .get("audiosamplingrate")
-                                                .and_then(|x| x.parse::<i32>().ok())
-                                                .unwrap_or(0)
-                                                .into(),
-                                        ),
-                                    );
-                                }
+//         match res {
+//             Ok(event) => match event {
+//                 Event::EndDocument => {
+//                     break;
+//                 }
+//                 Event::StartElement(node) => {
+//                     if node.name.to_lowercase() == "ADAPTATIONSET".to_lowercase() {
+//                         adaptation_set = node
+//                             .attributes()
+//                             .map(|x| (x.name.to_lowercase(), x.value.to_lowercase()))
+//                             .collect();
+//                     } else if node.name.to_lowercase() == "REPRESENTATION".to_lowercase() {
+//                         let representation: HashMap<String, String> = node
+//                             .attributes()
+//                             .map(|x| (x.name.to_lowercase(), x.value.to_lowercase()))
+//                             .collect();
+//                         if representation.contains_key("id") {
+//                             let itag = representation.get("id").unwrap();
+//                             let itag = itag.parse::<i32>();
+//                             if let Ok(itag) = itag {
+//                                 let mut format = serde_json::json!({
+//                                     "itag": itag,
+//                                     "bitrate": representation.get("bandwith").and_then(|x| x.parse::<i32>().ok()).unwrap_or(0),
+//                                     "mimeType": format!(r#"{}; codecs="{}""#,adaptation_set.get("mimetype").map(|x| x.as_str()).unwrap_or(""),representation.get("codecs").map(|x| x.as_str()).unwrap_or(""))
+//                                 });
+//                                 let format_as_object_mut =
+//                                     format.as_object_mut().expect("IMPOSSIBLE");
+//                                 if representation.contains_key("height") {
+//                                     format_as_object_mut.insert(
+//                                         "width".to_string(),
+//                                         serde_json::Value::Number(
+//                                             representation
+//                                                 .get("width")
+//                                                 .and_then(|x| x.parse::<i32>().ok())
+//                                                 .unwrap_or(0)
+//                                                 .into(),
+//                                         ),
+//                                     );
+//                                     format_as_object_mut.insert(
+//                                         "height".to_string(),
+//                                         serde_json::Value::Number(
+//                                             representation
+//                                                 .get("height")
+//                                                 .and_then(|x| x.parse::<i32>().ok())
+//                                                 .unwrap_or(0)
+//                                                 .into(),
+//                                         ),
+//                                     );
+//                                     format_as_object_mut.insert(
+//                                         "fps".to_string(),
+//                                         serde_json::Value::Number(
+//                                             representation
+//                                                 .get("framerate")
+//                                                 .and_then(|x| x.parse::<i32>().ok())
+//                                                 .unwrap_or(0)
+//                                                 .into(),
+//                                         ),
+//                                     );
+//                                 } else {
+//                                     format_as_object_mut.insert(
+//                                         "audioSampleRate".to_string(),
+//                                         serde_json::Value::Number(
+//                                             representation
+//                                                 .get("audiosamplingrate")
+//                                                 .and_then(|x| x.parse::<i32>().ok())
+//                                                 .unwrap_or(0)
+//                                                 .into(),
+//                                         ),
+//                                     );
+//                                 }
 
-                                formats.insert(formats.len(), format);
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            },
-            Err(err) => {
-                println!("{}", err);
-                break;
-            }
-        }
-    }
+//                                 formats.insert(formats.len(), format);
+//                             }
+//                         }
+//                     }
+//                 }
+//                 _ => {}
+//             },
+//             Err(err) => {
+//                 println!("{}", err);
+//                 break;
+//             }
+//         }
+//     }
 
-    Ok(formats)
-}
+//     Ok(formats)
+// }
 
 async fn get_m3u8(
     url: &str,
