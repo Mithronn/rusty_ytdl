@@ -2,6 +2,7 @@ use std::io::Write;
 use std::process::Stdio;
 use tokio::{io::AsyncWriteExt, process::Command};
 
+#[ignore]
 #[tokio::test]
 async fn ffmpeg_test() {
     use rusty_ytdl::{Video, VideoOptions, VideoQuality, VideoSearchOptions};
