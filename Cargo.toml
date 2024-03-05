@@ -11,6 +11,7 @@ keywords = ["youtube", "downloader", "ytdl", "youtube-dl", "searcher"]
 include = ["src/**/*", "Cargo.toml"]
 exclude = ["examples/**/*", "tests/**/*", ".github/**/*"]
 categories = ["multimedia::video", "multimedia::audio"]
+rust-version = "1.70.0"
 
 [package.metadata.docs.rs]
 all-features = true
