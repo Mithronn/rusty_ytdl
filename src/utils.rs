@@ -142,97 +142,6 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
         format.insert("hasAudio".to_owned(), serde_json::Value::Bool(false));
     }
 
-    if format.contains_key("mimeType") {
-        let container_value_arr = format
-            .get("mimeType")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .split(';')
-            .collect::<Vec<&str>>()
-            .first()
-            .unwrap_or(&"")
-            .split('/')
-            .collect::<Vec<&str>>();
-
-        let container_value = container_value_arr.get(1).unwrap_or(&"");
-
-        if !container_value.is_empty() {
-            format.insert("container".to_owned(), serde_json::json!(container_value));
-        } else {
-            format.insert("container".to_owned(), serde_json::json!(null));
-        }
-
-        let codecs_value = between(
-            format
-                .get("mimeType")
-                .and_then(|x| x.as_str())
-                .unwrap_or(""),
-            r#"codecs=""#,
-            r#"""#,
-        );
-
-        if !codecs_value.is_empty() {
-            format.insert("codecs".to_string(), serde_json::json!(codecs_value));
-        } else {
-            format.insert("codecs".to_string(), serde_json::json!(null));
-        }
-    } else {
-        format.insert("container".to_owned(), serde_json::json!(null));
-        format.insert("codecs".to_string(), serde_json::json!(null));
-    }
-
-    if format
-        .get("hasVideo")
-        .and_then(|x| x.as_bool())
-        .unwrap_or(false)
-        && format.get("codecs").map(|x| !x.is_null()).unwrap_or(false)
-    {
-        let video_codec_value = format
-            .get("codecs")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .split(", ")
-            .collect::<Vec<&str>>()[0];
-
-        if !video_codec_value.is_empty() {
-            format.insert(
-                "videoCodec".to_string(),
-                serde_json::json!(video_codec_value),
-            );
-        } else {
-            format.insert("videoCodec".to_string(), serde_json::json!(null));
-        }
-    } else {
-        format.insert("videoCodec".to_string(), serde_json::json!(null));
-    }
-
-    if format
-        .get("hasAudio")
-        .and_then(|x| x.as_bool())
-        .unwrap_or(false)
-        && format.get("codecs").map(|x| !x.is_null()).unwrap_or(false)
-    {
-        let audio_codec_value_arr = format
-            .get("codecs")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .split(", ")
-            .collect::<Vec<&str>>();
-
-        let audio_codec_value = audio_codec_value_arr.last().unwrap_or(&"");
-
-        if !audio_codec_value.is_empty() {
-            format.insert(
-                "audioCodec".to_string(),
-                serde_json::json!(audio_codec_value),
-            );
-        } else {
-            format.insert("audioCodec".to_string(), serde_json::json!(null));
-        }
-    } else {
-        format.insert("audioCodec".to_string(), serde_json::json!(null));
-    }
-
     let regex_is_live = Regex::new(r"\bsource[/=]yt_live_broadcast\b").unwrap();
     let regex_is_hls = Regex::new(r"/manifest/hls_(variant|playlist)/").unwrap();
     let regex_is_dashmpd = Regex::new(r"/manifest/dash/").unwrap();
@@ -413,10 +322,7 @@ pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Orde
             |form: &VideoFormat| {
                 let index = VIDEO_ENCODING_RANKS
                     .iter()
-                    .position(|enc| {
-                        form.codecs.is_some()
-                            && form.codecs.clone().unwrap_or("".to_string()).contains(enc)
-                    })
+                    .position(|enc| form.mime_type.codecs.join(", ").contains(enc))
                     .map(|x| x as i32)
                     .unwrap_or(-1);
 
@@ -437,10 +343,7 @@ pub fn sort_formats_by_audio(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Orde
             |form: &VideoFormat| {
                 let index = AUDIO_ENCODING_RANKS
                     .iter()
-                    .position(|enc| {
-                        form.codecs.is_some()
-                            && form.codecs.clone().unwrap_or("".to_string()).contains(enc)
-                    })
+                    .position(|enc| form.mime_type.codecs.join(", ").contains(enc))
                     .map(|x| x as i32)
                     .unwrap_or(-1);
 
@@ -488,7 +391,7 @@ pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
             |form: &VideoFormat| {
                 let index = VIDEO_ENCODING_RANKS
                     .iter()
-                    .position(|enc| form.codecs.clone().unwrap_or("".to_string()).contains(enc))
+                    .position(|enc| form.mime_type.codecs.join(", ").contains(enc))
                     .map(|x| x as i32)
                     .unwrap_or(-1);
 
@@ -498,7 +401,7 @@ pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
             |form: &VideoFormat| {
                 let index = AUDIO_ENCODING_RANKS
                     .iter()
-                    .position(|enc| form.codecs.clone().unwrap_or("".to_string()).contains(enc))
+                    .position(|enc| form.mime_type.codecs.join(", ").contains(enc))
                     .map(|x| x as i32)
                     .unwrap_or(-1);
 
@@ -1598,7 +1501,9 @@ pub fn cut_after_js(mixed_json: &str) -> Option<String> {
         {
             is_escaped_object = None;
             continue;
-        } else if !is_escaped && is_escaped_object.is_none() {
+        }
+
+        if !is_escaped && is_escaped_object.is_none() {
             for escaped in ESCAPING_SEQUENZES.iter() {
                 if value != escaped.start.as_str() {
                     continue;

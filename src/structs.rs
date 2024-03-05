@@ -1,6 +1,11 @@
-use serde::{Deserialize, Serialize};
+use mime::Mime;
+use serde::{
+    de::{Error, Unexpected},
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 use std::{
     ops::{Bound, RangeBounds},
+    str::FromStr,
     sync::Arc,
 };
 
@@ -262,7 +267,7 @@ pub struct VideoFormat {
     pub itag: u64,
     /// Video format mime type
     #[serde(rename = "mimeType")]
-    pub mime_type: String,
+    pub mime_type: MimeType,
     pub bitrate: u64,
     /// Video format width
     pub width: Option<u64>, // VIDEO & DASH MPD ONLY
@@ -308,12 +313,6 @@ pub struct VideoFormat {
     /// Video format has audio or not
     #[serde(rename = "hasAudio")]
     pub has_audio: bool,
-    pub container: Option<String>,
-    pub codecs: Option<String>,
-    #[serde(rename = "videoCodec")]
-    pub video_codec: Option<String>,
-    #[serde(rename = "audioCodec")]
-    pub audio_codec: Option<String>,
     /// Video is live or not
     #[serde(rename = "isLive")]
     pub is_live: bool,
@@ -571,5 +570,83 @@ impl StringUtils for str {
             Bound::Unbounded => self.len(),
         } - start;
         self.substr(start, len)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MimeType {
+    pub mime: Mime,
+    /// Mime container
+    pub container: String,
+    /**
+     * Mime codec parameters
+
+     **Mime type:** [`mime::AUDIO`] or [`mime::VIDEO`] => contains 1 element and its audio/video codec
+
+     **Mime type:** [`mime::VIDEO`] => if contains 2 element, first is video and second is audio codec
+    */
+    pub codecs: Vec<String>,
+    /// Video codec parameter
+    pub video_codec: Option<String>,
+    /// Audio codec parameter
+    pub audio_codec: Option<String>,
+}
+
+impl Serialize for MimeType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = format!(
+            r#"{}/{}; codecs="{}""#,
+            self.mime.type_(),
+            self.mime.subtype(),
+            self.codecs.join(", "),
+        );
+
+        s.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for MimeType {
+    fn deserialize<D>(deserializer: D) -> Result<MimeType, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        let mime: Mime = Mime::from_str(&s).map_err(|_| {
+            D::Error::invalid_value(
+                Unexpected::Str(&s),
+                &r#"valid mime type format must be `(\w+/\w+);\scodecs="([a-zA-Z-0-9.,\s]*)"`"#,
+            )
+        })?;
+
+        let codecs: Vec<String> = mime
+            .get_param("codecs")
+            .map(|x| x.as_str().split(", ").map(|x| x.to_string()).collect())
+            .unwrap_or_default();
+
+        let container: String = mime.subtype().to_string();
+
+        let video_codec = if mime.type_() == mime::VIDEO {
+            codecs.first().cloned()
+        } else {
+            None
+        };
+
+        let audio_codec = if mime.type_() == mime::AUDIO {
+            codecs.first().cloned()
+        } else {
+            codecs.get(1).cloned()
+        };
+
+        Ok(MimeType {
+            mime,
+            container,
+            codecs,
+            video_codec,
+            audio_codec,
+        })
     }
 }

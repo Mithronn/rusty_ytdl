@@ -85,18 +85,18 @@ impl Serialize for FormatSerializer {
                 approx_duration_ms, url
             }
             OutputLevel::GENERAL | OutputLevel::VERBOSE => {
-                codecs
+
             }
 
             OutputLevel::VIDEO_TRACK => {
-                height, width, quality_label, fps, video_codec
+                height, width, quality_label, fps
             }
             OutputLevel::VIDEO_TRACK | OutputLevel::VERBOSE => {
                 color_info, high_replication,
             }
 
             OutputLevel::AUDIO_TRACK => {
-                audio_quality, bitrate, audio_sample_rate, audio_channels, loudness_db, audio_codec, high_replication
+                audio_quality, bitrate, audio_sample_rate, audio_channels, loudness_db, high_replication
             }
             OutputLevel::AUDIO_TRACK | OutputLevel::VERBOSE => {
                 average_bitrate

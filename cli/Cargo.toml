@@ -30,7 +30,7 @@ tokio = { version = "1.28.2", features = [
     "io-std",
 ] }
 log = "0.4.20"
-rusty_ytdl = { path = "..", version = "0.6.6" }
+rusty_ytdl = { path = "..", version = "0.6.7" }
 colored = { version = "2.0.0" }
 indicatif = "0.17.4"
 fern = { version = "0.6.2", features = ["colored"] }

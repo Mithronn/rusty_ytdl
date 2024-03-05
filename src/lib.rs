@@ -19,9 +19,9 @@ pub mod search;
 
 pub use info::Video;
 pub use structs::{
-    Author, Chapter, ColorInfo, DownloadOptions, Embed, RangeObject, RelatedVideo, RequestOptions,
-    StoryBoard, Thumbnail, VideoDetails, VideoError, VideoFormat, VideoInfo, VideoOptions,
-    VideoQuality, VideoSearchOptions,
+    Author, Chapter, ColorInfo, DownloadOptions, Embed, MimeType, RangeObject, RelatedVideo,
+    RequestOptions, StoryBoard, Thumbnail, VideoDetails, VideoError, VideoFormat, VideoInfo,
+    VideoOptions, VideoQuality, VideoSearchOptions,
 };
 pub use utils::{choose_format, get_random_v6_ip, get_video_id};
 // export to access proxy feature
