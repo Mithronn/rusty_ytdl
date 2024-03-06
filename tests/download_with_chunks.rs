@@ -14,7 +14,17 @@ async fn download_with_chunks() {
 
     let video = Video::new_with_options(url, video_options).unwrap();
 
-    let stream = video.stream().await.unwrap();
+    let stream;
+
+    #[cfg(feature = "ffmpeg")]
+    {
+        stream = video.stream(None).await.unwrap();
+    }
+
+    #[cfg(not(feature = "ffmpeg"))]
+    {
+        stream = video.stream().await.unwrap();
+    }
 
     while let Some(chunk) = stream.chunk().await.unwrap() {
         println!("{} byte downloaded", chunk.len());

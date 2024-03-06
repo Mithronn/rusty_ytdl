@@ -10,6 +10,9 @@ use crate::Video as AsyncVideo;
 use super::stream::LiveStreamOptions;
 use super::stream::{NonLiveStreamOptions, Stream};
 
+#[cfg(feature = "ffmpeg")]
+use crate::structs::FFmpegArgs;
+
 #[derive(Clone, Debug, derive_more::Display, PartialEq, Eq)]
 pub struct Video(AsyncVideo);
 
@@ -53,7 +56,10 @@ impl Video {
     ///           println!("{:#?}", chunk);
     ///     }
     /// ```
-    pub fn stream(&self) -> Result<Box<dyn Stream + Send + Sync>, VideoError> {
+    pub fn stream(
+        &self,
+        #[cfg(feature = "ffmpeg")] ffmpeg_args: Option<FFmpegArgs>,
+    ) -> Result<Box<dyn Stream + Send + Sync>, VideoError> {
         let client = self.0.get_client();
 
         let options = self.0.get_options();
@@ -124,14 +130,28 @@ impl Video {
             dl_chunk_size,
             start,
             end,
+            #[cfg(feature = "ffmpeg")]
+            ffmpeg_args,
         })?;
 
         Ok(Box::new(stream))
     }
 
     /// Download video directly to the file
-    pub fn download<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), VideoError> {
-        Ok(block_async!(self.0.download(path))?)
+    pub fn download<P: AsRef<std::path::Path>>(
+        &self,
+        path: P,
+        #[cfg(feature = "ffmpeg")] ffmpeg_args: Option<FFmpegArgs>,
+    ) -> Result<(), VideoError> {
+        #[cfg(feature = "ffmpeg")]
+        {
+            Ok(block_async!(self.0.download(path, ffmpeg_args))?)
+        }
+
+        #[cfg(not(feature = "ffmpeg"))]
+        {
+            Ok(block_async!(self.0.download(path))?)
+        }
     }
 
     /// Get video URL

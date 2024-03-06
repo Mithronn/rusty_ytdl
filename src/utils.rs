@@ -2,6 +2,8 @@ use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::process::Stdio;
+use tokio::{io::AsyncWriteExt, process::Command};
 use unicode_segmentation::UnicodeSegmentation;
 use urlencoding::decode;
 
@@ -14,6 +16,30 @@ use crate::structs::{
     Embed, EscapeSequence, StringUtils, Thumbnail, VideoDetails, VideoError, VideoFormat,
     VideoOptions, VideoQuality, VideoSearchOptions,
 };
+
+#[cfg(feature = "ffmpeg")]
+pub async fn ffmpeg_cmd_run(args: &Vec<String>, data: &[u8]) -> Result<Vec<u8>, VideoError> {
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .kill_on_drop(true);
+
+    let mut process = cmd.spawn().map_err(|x| VideoError::FFmpeg(x.to_string()))?;
+    let mut stdin = process
+        .stdin
+        .take()
+        .ok_or(VideoError::FFmpeg("Failed to open stdin".to_string()))?;
+    let cloned_data = data.to_owned();
+    tokio::spawn(async move { stdin.write_all(&cloned_data).await });
+
+    let output = process
+        .wait_with_output()
+        .await
+        .map_err(|x| VideoError::FFmpeg(x.to_string()))?;
+
+    Ok(output.stdout)
+}
 
 #[allow(dead_code)]
 pub fn get_cver(info: &serde_json::Value) -> &str {

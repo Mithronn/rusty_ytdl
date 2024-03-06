@@ -49,15 +49,17 @@ hex = "0.4.3"
 unicode-segmentation = "1.11.0"
 boa_engine = "0.17.3"
 mime = "0.3.17"
+bytes = "1.5.0"
 
 [dev-dependencies]
 tokio = { version = "1.36.0", features = ["full"] }
 
 [features]
-default = ["search", "live", "default-tls"]
+default = ["search", "live", "default-tls", "ffmpeg"]
 live = ["tokio/time", "tokio/process"]
 blocking = ["tokio/rt", "tokio/rt-multi-thread"]
 search = []
+ffmpeg = ["tokio/process"]
 default-tls = ["reqwest/default-tls"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]

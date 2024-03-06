@@ -23,6 +23,10 @@ pub use structs::{
     RequestOptions, StoryBoard, Thumbnail, VideoDetails, VideoError, VideoFormat, VideoInfo,
     VideoOptions, VideoQuality, VideoSearchOptions,
 };
+
+#[cfg(feature = "ffmpeg")]
+pub use structs::FFmpegArgs;
+
 pub use utils::{choose_format, get_random_v6_ip, get_video_id};
 // export to access proxy feature
 pub use reqwest;

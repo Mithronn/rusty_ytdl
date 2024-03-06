@@ -15,6 +15,9 @@ use crate::stream::{NonLiveStream, NonLiveStreamOptions, Stream};
 
 use crate::structs::{VideoError, VideoFormat, VideoInfo, VideoOptions};
 
+#[cfg(feature = "ffmpeg")]
+use crate::structs::FFmpegArgs;
+
 use crate::utils::{
     add_format_meta, between, choose_format, clean_video_details, get_functions, get_html,
     get_html5player, get_random_v6_ip, get_video_id, is_not_yet_broadcasted, is_play_error,
@@ -330,7 +333,10 @@ impl Video {
     ///           println!("{:#?}", chunk);
     ///     }
     /// ```
-    pub async fn stream(&self) -> Result<Box<dyn Stream + Send + Sync>, VideoError> {
+    pub async fn stream(
+        &self,
+        #[cfg(feature = "ffmpeg")] ffmpeg_args: Option<FFmpegArgs>,
+    ) -> Result<Box<dyn Stream + Send + Sync>, VideoError> {
         let client = &self.client;
 
         let info = self.get_info().await?;
@@ -364,11 +370,12 @@ impl Video {
             }
         }
 
-        let dl_chunk_size = if self.options.download_options.dl_chunk_size.is_some() {
-            self.options.download_options.dl_chunk_size.unwrap()
-        } else {
-            1024 * 1024 * 10_u64 // -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
-        };
+        let dl_chunk_size = self
+            .options
+            .download_options
+            .dl_chunk_size
+            // 1024 * 1024 * 10_u64 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
+            .unwrap_or(1024 * 1024 * 10_u64);
 
         let start = 0;
         let end = start + dl_chunk_size;
@@ -402,15 +409,32 @@ impl Video {
             dl_chunk_size,
             start,
             end,
+            #[cfg(feature = "ffmpeg")]
+            ffmpeg_args,
         })?;
 
         Ok(Box::new(stream))
     }
 
     /// Download video directly to the file
-    pub async fn download<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), VideoError> {
+    pub async fn download<P: AsRef<std::path::Path>>(
+        &self,
+        path: P,
+        #[cfg(feature = "ffmpeg")] ffmpeg_args: Option<FFmpegArgs>,
+    ) -> Result<(), VideoError> {
         use std::io::Write;
-        let stream = self.stream().await.unwrap();
+
+        let stream: Box<dyn Stream + Send + Sync>;
+
+        #[cfg(not(feature = "ffmpeg"))]
+        {
+            stream = self.stream().await.unwrap();
+        }
+
+        #[cfg(feature = "ffmpeg")]
+        {
+            stream = self.stream(ffmpeg_args).await.unwrap();
+        }
 
         let mut file =
             std::fs::File::create(path).map_err(|e| VideoError::DownloadError(e.to_string()))?;

@@ -1,8 +1,12 @@
+use async_trait::async_trait;
+use tokio::sync::RwLock;
+
 use crate::constants::DEFAULT_HEADERS;
 use crate::stream::streams::Stream;
 use crate::structs::VideoError;
-use async_trait::async_trait;
-use tokio::sync::RwLock;
+
+#[cfg(feature = "ffmpeg")]
+use crate::{structs::FFmpegArgs, utils::ffmpeg_cmd_run};
 
 pub struct NonLiveStreamOptions {
     pub client: Option<reqwest_middleware::ClientWithMiddleware>,
@@ -11,6 +15,9 @@ pub struct NonLiveStreamOptions {
     pub dl_chunk_size: u64,
     pub start: u64,
     pub end: u64,
+
+    #[cfg(feature = "ffmpeg")]
+    pub ffmpeg_args: Option<FFmpegArgs>,
 }
 
 pub struct NonLiveStream {
@@ -21,6 +28,13 @@ pub struct NonLiveStream {
     end: RwLock<u64>,
 
     client: reqwest_middleware::ClientWithMiddleware,
+
+    #[cfg(feature = "ffmpeg")]
+    ffmpeg_args: Option<FFmpegArgs>,
+    #[cfg(feature = "ffmpeg")]
+    ffmpeg_start_byte: RwLock<Vec<u8>>,
+    #[cfg(feature = "ffmpeg")]
+    ffmpeg_end_byte: RwLock<usize>,
 }
 
 impl NonLiveStream {
@@ -52,6 +66,12 @@ impl NonLiveStream {
             dl_chunk_size: options.dl_chunk_size,
             start: RwLock::new(options.start),
             end: RwLock::new(options.end),
+            #[cfg(feature = "ffmpeg")]
+            ffmpeg_args: options.ffmpeg_args,
+            #[cfg(feature = "ffmpeg")]
+            ffmpeg_end_byte: RwLock::new(0),
+            #[cfg(feature = "ffmpeg")]
+            ffmpeg_start_byte: RwLock::new(vec![]),
         })
     }
 
@@ -65,6 +85,16 @@ impl NonLiveStream {
 
     async fn start_index(&self) -> u64 {
         *self.start.read().await
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    async fn ffmpeg_end_byte_index(&self) -> usize {
+        *self.ffmpeg_end_byte.read().await
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    async fn ffmpeg_start_byte_index(&self) -> Vec<u8> {
+        self.ffmpeg_start_byte.read().await.to_vec()
     }
 }
 
@@ -100,19 +130,52 @@ impl Stream for NonLiveStream {
                 .unwrap(),
         );
 
-        let response = self.client.get(&self.link).headers(headers).send().await;
-
-        if response.is_err() {
-            return Err(VideoError::ReqwestMiddleware(response.err().unwrap()));
-        }
-
-        let mut response = response.expect("IMPOSSIBLE");
+        let mut response = self
+            .client
+            .get(&self.link)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(VideoError::ReqwestMiddleware)?;
 
         let mut buf: Vec<u8> = vec![];
 
         while let Some(chunk) = response.chunk().await.map_err(VideoError::Reqwest)? {
             let chunk = chunk.to_vec();
             buf.extend(chunk.iter());
+        }
+
+        #[cfg(feature = "ffmpeg")]
+        {
+            let ffmpeg_args = self
+                .ffmpeg_args
+                .clone()
+                .map(|x| x.build())
+                .unwrap_or_default();
+
+            if !ffmpeg_args.is_empty() {
+                let ffmpeg_start_byte_index = self.ffmpeg_start_byte_index().await;
+
+                let cmd_output = ffmpeg_cmd_run(
+                    &ffmpeg_args,
+                    &[&ffmpeg_start_byte_index, buf.as_slice()].concat(),
+                )
+                .await?;
+
+                let end_index = self.ffmpeg_end_byte_index().await;
+
+                let mut first_buffer_trim = 1;
+                if ffmpeg_start_byte_index.is_empty() {
+                    let mut start_byte = self.ffmpeg_start_byte.write().await;
+                    *start_byte = buf.clone();
+                    let mut end_byte = self.ffmpeg_end_byte.write().await;
+                    *end_byte = cmd_output.len();
+
+                    first_buffer_trim = 0;
+                }
+
+                buf = (cmd_output[(end_index + first_buffer_trim)..]).to_vec();
+            }
         }
 
         if end != 0 {

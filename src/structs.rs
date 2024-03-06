@@ -259,6 +259,10 @@ pub enum VideoError {
     /// Downloading live streams not supported, compile with `live` feature to enable
     #[error("Downloading live streams not supported, compile with `live` feature to enable")]
     LiveStreamNotSupported,
+    /// FFmpeg command error
+    #[error("FFmpeg command error: {0}")]
+    #[cfg(feature = "ffmpeg")]
+    FFmpeg(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -648,5 +652,57 @@ impl<'de> Deserialize<'de> for MimeType {
             video_codec,
             audio_codec,
         })
+    }
+}
+
+#[cfg(feature = "ffmpeg")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FFmpegArgs {
+    pub format: Option<String>,
+    pub audio_filter: Option<String>,
+    pub video_filter: Option<String>,
+}
+
+#[cfg(feature = "ffmpeg")]
+impl FFmpegArgs {
+    pub fn build(&self) -> Vec<String> {
+        let mut args: Vec<String> = vec![];
+
+        if let Some(format) = &self.format {
+            args.push("-f".to_string());
+            args.push(format.to_string());
+        }
+
+        if let Some(audio_filter) = &self.audio_filter {
+            args.push("-af".to_string());
+            args.push(audio_filter.to_string());
+        }
+
+        if let Some(video_filter) = &self.video_filter {
+            args.push("-vf".to_string());
+            args.push(video_filter.to_string());
+        }
+
+        if self.format.is_some() || self.audio_filter.is_some() || self.video_filter.is_some() {
+            args = [
+                vec![
+                    // input as stdin
+                    "-i".to_string(),
+                    // aliases of pipe:0
+                    "-".to_string(),
+                    // "-analyzeduration".to_string(),
+                    // "0".to_string(),
+                    // "-loglevel".to_string(),
+                    // "0".to_string(),
+                ],
+                args,
+            ]
+            .concat();
+
+            // pipe to stdout
+            args.push("pipe:1".to_string());
+        }
+
+        args
     }
 }
