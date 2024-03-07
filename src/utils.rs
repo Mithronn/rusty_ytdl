@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,9 @@ use crate::structs::{
 };
 
 #[cfg(feature = "ffmpeg")]
-pub async fn ffmpeg_cmd_run(args: &Vec<String>, data: &[u8]) -> Result<Vec<u8>, VideoError> {
+pub async fn ffmpeg_cmd_run(args: &Vec<String>, data: Bytes) -> Result<Bytes, VideoError> {
+    use tokio::io::AsyncReadExt;
+
     let mut cmd = Command::new("ffmpeg");
     cmd.args(args)
         .stdin(Stdio::piped())
@@ -30,15 +33,15 @@ pub async fn ffmpeg_cmd_run(args: &Vec<String>, data: &[u8]) -> Result<Vec<u8>, 
         .stdin
         .take()
         .ok_or(VideoError::FFmpeg("Failed to open stdin".to_string()))?;
-    let cloned_data = data.to_owned();
-    tokio::spawn(async move { stdin.write_all(&cloned_data).await });
+
+    tokio::spawn(async move { stdin.write_all(&data).await });
 
     let output = process
         .wait_with_output()
         .await
         .map_err(|x| VideoError::FFmpeg(x.to_string()))?;
 
-    Ok(output.stdout)
+    Ok(Bytes::from(output.stdout))
 }
 
 #[allow(dead_code)]
@@ -230,80 +233,59 @@ pub fn choose_format<'a>(
         VideoQuality::Highest => {
             filter_formats(&mut formats, filter);
 
-            let return_format = formats.first();
+            let return_format = formats.first().ok_or(VideoError::FormatNotFound)?;
 
-            if return_format.is_none() {
-                return Err(VideoError::FormatNotFound);
-            }
-            Ok(return_format.unwrap().clone())
+            Ok(return_format.clone())
         }
         VideoQuality::Lowest => {
             filter_formats(&mut formats, filter);
 
-            let return_format = formats.last();
+            let return_format = formats.last().ok_or(VideoError::FormatNotFound)?;
 
-            if return_format.is_none() {
-                return Err(VideoError::FormatNotFound);
-            }
-            Ok(return_format.unwrap().clone())
+            Ok(return_format.clone())
         }
         VideoQuality::HighestAudio => {
             filter_formats(&mut formats, &VideoSearchOptions::Audio);
             formats.sort_by(sort_formats_by_audio);
 
-            let return_format = formats.first();
+            let return_format = formats.first().ok_or(VideoError::FormatNotFound)?;
 
-            if return_format.is_none() {
-                return Err(VideoError::FormatNotFound);
-            }
-            Ok(return_format.unwrap().clone())
+            Ok(return_format.clone())
         }
         VideoQuality::LowestAudio => {
             filter_formats(&mut formats, &VideoSearchOptions::Audio);
 
             formats.sort_by(sort_formats_by_audio);
 
-            let return_format = formats.last();
+            let return_format = formats.last().ok_or(VideoError::FormatNotFound)?;
 
-            if return_format.is_none() {
-                return Err(VideoError::FormatNotFound);
-            }
-            Ok(return_format.unwrap().clone())
+            Ok(return_format.clone())
         }
         VideoQuality::HighestVideo => {
             filter_formats(&mut formats, &VideoSearchOptions::Video);
             formats.sort_by(sort_formats_by_video);
 
-            let return_format = formats.first();
+            let return_format = formats.first().ok_or(VideoError::FormatNotFound)?;
 
-            if return_format.is_none() {
-                return Err(VideoError::FormatNotFound);
-            }
-            Ok(return_format.unwrap().clone())
+            Ok(return_format.clone())
         }
         VideoQuality::LowestVideo => {
             filter_formats(&mut formats, &VideoSearchOptions::Video);
 
             formats.sort_by(sort_formats_by_video);
 
-            let return_format = formats.last();
+            let return_format = formats.last().ok_or(VideoError::FormatNotFound)?;
 
-            if return_format.is_none() {
-                return Err(VideoError::FormatNotFound);
-            }
-            Ok(return_format.unwrap().clone())
+            Ok(return_format.clone())
         }
         VideoQuality::Custom(filter, func) => {
             filter_formats(&mut formats, filter);
 
             formats.sort_by(|x, y| func(x, y));
 
-            let return_format = formats.first();
+            let return_format = formats.first().ok_or(VideoError::FormatNotFound)?;
 
-            if return_format.is_none() {
-                return Err(VideoError::FormatNotFound);
-            }
-            Ok(return_format.unwrap().clone())
+            Ok(return_format.clone())
         }
     }
 }

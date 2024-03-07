@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use bytes::{Bytes, BytesMut};
 use tokio::sync::RwLock;
 
 use crate::constants::DEFAULT_HEADERS;
@@ -32,7 +33,7 @@ pub struct NonLiveStream {
     #[cfg(feature = "ffmpeg")]
     ffmpeg_args: Option<FFmpegArgs>,
     #[cfg(feature = "ffmpeg")]
-    ffmpeg_start_byte: RwLock<Vec<u8>>,
+    ffmpeg_start_byte: RwLock<Bytes>,
     #[cfg(feature = "ffmpeg")]
     ffmpeg_end_byte: RwLock<usize>,
 }
@@ -71,7 +72,7 @@ impl NonLiveStream {
             #[cfg(feature = "ffmpeg")]
             ffmpeg_end_byte: RwLock::new(0),
             #[cfg(feature = "ffmpeg")]
-            ffmpeg_start_byte: RwLock::new(vec![]),
+            ffmpeg_start_byte: RwLock::new(Bytes::new()),
         })
     }
 
@@ -93,14 +94,14 @@ impl NonLiveStream {
     }
 
     #[cfg(feature = "ffmpeg")]
-    async fn ffmpeg_start_byte_index(&self) -> Vec<u8> {
-        self.ffmpeg_start_byte.read().await.to_vec()
+    async fn ffmpeg_start_byte_index(&self) -> Bytes {
+        self.ffmpeg_start_byte.read().await.to_vec().into()
     }
 }
 
 #[async_trait]
 impl Stream for NonLiveStream {
-    async fn chunk(&self) -> Result<Option<Vec<u8>>, VideoError> {
+    async fn chunk(&self) -> Result<Option<Bytes>, VideoError> {
         let end = self.end_index().await;
 
         // Nothing else remain send None to finish
@@ -138,11 +139,10 @@ impl Stream for NonLiveStream {
             .await
             .map_err(VideoError::ReqwestMiddleware)?;
 
-        let mut buf: Vec<u8> = vec![];
+        let mut buf: BytesMut = BytesMut::new();
 
         while let Some(chunk) = response.chunk().await.map_err(VideoError::Reqwest)? {
-            let chunk = chunk.to_vec();
-            buf.extend(chunk.iter());
+            buf.extend(chunk);
         }
 
         #[cfg(feature = "ffmpeg")]
@@ -158,23 +158,29 @@ impl Stream for NonLiveStream {
 
                 let cmd_output = ffmpeg_cmd_run(
                     &ffmpeg_args,
-                    &[&ffmpeg_start_byte_index, buf.as_slice()].concat(),
+                    Bytes::from(
+                        [
+                            BytesMut::from_iter(ffmpeg_start_byte_index.clone()),
+                            buf.clone(),
+                        ]
+                        .concat(),
+                    ),
                 )
                 .await?;
 
                 let end_index = self.ffmpeg_end_byte_index().await;
 
-                let mut first_buffer_trim = 1;
+                let mut first_buffer_trim = if cmd_output.is_empty() { 0 } else { 1 };
                 if ffmpeg_start_byte_index.is_empty() {
                     let mut start_byte = self.ffmpeg_start_byte.write().await;
-                    *start_byte = buf.clone();
+                    *start_byte = buf.into();
                     let mut end_byte = self.ffmpeg_end_byte.write().await;
                     *end_byte = cmd_output.len();
 
                     first_buffer_trim = 0;
                 }
 
-                buf = (cmd_output[(end_index + first_buffer_trim)..]).to_vec();
+                buf = BytesMut::from(&cmd_output[(end_index + first_buffer_trim)..]);
             }
         }
 
@@ -185,7 +191,7 @@ impl Stream for NonLiveStream {
             *end += self.dl_chunk_size;
         }
 
-        Ok(Some(buf))
+        Ok(Some(buf.into()))
     }
 
     fn content_length(&self) -> usize {

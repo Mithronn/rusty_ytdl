@@ -1,6 +1,6 @@
 [package]
 name = "rusty_ytdl"
-version = "0.6.7"
+version = "0.7.0"
 authors = ["Mithronn"]
 edition = "2021"
 description = "A Rust library for Youtube video searcher and downloader"
@@ -55,7 +55,7 @@ bytes = "1.5.0"
 tokio = { version = "1.36.0", features = ["full"] }
 
 [features]
-default = ["search", "live", "default-tls", "ffmpeg"]
+default = ["search", "live", "default-tls"]
 live = ["tokio/time", "tokio/process"]
 blocking = ["tokio/rt", "tokio/rt-multi-thread"]
 search = []

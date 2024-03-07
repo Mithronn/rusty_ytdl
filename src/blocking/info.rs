@@ -56,9 +56,95 @@ impl Video {
     ///           println!("{:#?}", chunk);
     ///     }
     /// ```
-    pub fn stream(
+    pub fn stream(&self) -> Result<Box<dyn Stream + Send + Sync>, VideoError> {
+        let client = self.0.get_client();
+
+        let options = self.0.get_options();
+
+        let info = block_async!(self.0.get_info())?;
+        let format = choose_format(&info.formats, &options)
+            .map_err(|_op| VideoError::VideoSourceNotFound)?;
+
+        let link = format.url;
+
+        if link.is_empty() {
+            return Err(VideoError::VideoSourceNotFound);
+        }
+
+        // Only check for HLS formats for live streams
+        if format.is_hls {
+            #[cfg(feature = "live")]
+            {
+                let stream = LiveStream::new(LiveStreamOptions {
+                    client: Some(client.clone()),
+                    stream_url: link,
+                })?;
+
+                return Ok(Box::new(stream));
+            }
+            #[cfg(not(feature = "live"))]
+            {
+                return Err(VideoError::LiveStreamNotSupported);
+            }
+        }
+
+        let dl_chunk_size = options
+            .download_options
+            .dl_chunk_size
+            // 1024 * 1024 * 10_u64 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
+            .unwrap_or(1024 * 1024 * 10_u64);
+
+        let start = 0;
+        let end = start + dl_chunk_size;
+
+        let mut content_length = format
+            .content_length
+            .unwrap_or("0".to_string())
+            .parse::<u64>()
+            .unwrap_or(0);
+
+        // Get content length from source url if content_length is 0
+        if content_length == 0 {
+            let content_length_response = block_async!(client.get(&link).send())
+                .map_err(VideoError::ReqwestMiddleware)?
+                .content_length()
+                .ok_or(VideoError::VideoNotFound)?;
+
+            content_length = content_length_response;
+        }
+
+        let stream = NonLiveStream::new(NonLiveStreamOptions {
+            client: Some(client.clone()),
+            link,
+            content_length,
+            dl_chunk_size,
+            start,
+            end,
+            #[cfg(feature = "ffmpeg")]
+            ffmpeg_args: None,
+        })?;
+
+        Ok(Box::new(stream))
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    /// Try to turn [`Stream`] implemented [`LiveStream`] or [`NonLiveStream`] depend on the video with [`FFmpegArgs`].
+    /// If function successfully return can download video with applied ffmpeg filters and formats chunk by chunk
+    /// # Example
+    /// ```ignore
+    ///     let video_url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc";
+    ///
+    ///     let video = Video::new(video_url).unwrap();
+    ///
+    ///     let stream = video.stream().await.unwrap();
+    ///
+    ///     while let Some(chunk) = stream.chunk().await.unwrap() {
+    ///           println!("{:#?}", chunk);
+    ///     }
+    /// ```
+    pub async fn stream_with_ffmpeg(
         &self,
-        #[cfg(feature = "ffmpeg")] ffmpeg_args: Option<FFmpegArgs>,
+        ffmpeg_args: Option<FFmpegArgs>,
     ) -> Result<Box<dyn Stream + Send + Sync>, VideoError> {
         let client = self.0.get_client();
 
@@ -81,13 +167,9 @@ impl Video {
                 let stream = LiveStream::new(LiveStreamOptions {
                     client: Some(client.clone()),
                     stream_url: link,
-                });
+                })?;
 
-                if stream.is_err() {
-                    return Err(stream.err().unwrap());
-                }
-
-                return Ok(Box::new(stream.unwrap()));
+                return Ok(Box::new(stream));
             }
             #[cfg(not(feature = "live"))]
             {
@@ -95,11 +177,11 @@ impl Video {
             }
         }
 
-        let dl_chunk_size = if options.download_options.dl_chunk_size.is_some() {
-            options.download_options.dl_chunk_size.unwrap()
-        } else {
-            1024 * 1024 * 10_u64 // -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
-        };
+        let dl_chunk_size = options
+            .download_options
+            .dl_chunk_size
+            // 1024 * 1024 * 10_u64 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
+            .unwrap_or(1024 * 1024 * 10_u64);
 
         let start = 0;
         let end = start + dl_chunk_size;
@@ -112,15 +194,15 @@ impl Video {
 
         // Get content length from source url if content_length is 0
         if content_length == 0 {
-            let content_length_response = block_async!(client.get(&link).send())
+            let content_length_response = client
+                .get(&link)
+                .send()
+                .await
                 .map_err(VideoError::ReqwestMiddleware)?
-                .content_length();
+                .content_length()
+                .ok_or(VideoError::VideoNotFound)?;
 
-            if content_length_response.is_none() {
-                return Err(VideoError::VideoNotFound);
-            }
-
-            content_length = content_length_response.unwrap();
+            content_length = content_length_response;
         }
 
         let stream = NonLiveStream::new(NonLiveStreamOptions {
@@ -130,7 +212,6 @@ impl Video {
             dl_chunk_size,
             start,
             end,
-            #[cfg(feature = "ffmpeg")]
             ffmpeg_args,
         })?;
 
@@ -138,20 +219,20 @@ impl Video {
     }
 
     /// Download video directly to the file
-    pub fn download<P: AsRef<std::path::Path>>(
+    pub fn download<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), VideoError> {
+        Ok(block_async!(self.0.download(path))?)
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    /// Download video with ffmpeg args directly to the file
+    pub async fn download_with_ffmpeg<P: AsRef<std::path::Path>>(
         &self,
         path: P,
-        #[cfg(feature = "ffmpeg")] ffmpeg_args: Option<FFmpegArgs>,
+        ffmpeg_args: Option<FFmpegArgs>,
     ) -> Result<(), VideoError> {
-        #[cfg(feature = "ffmpeg")]
-        {
-            Ok(block_async!(self.0.download(path, ffmpeg_args))?)
-        }
-
-        #[cfg(not(feature = "ffmpeg"))]
-        {
-            Ok(block_async!(self.0.download(path))?)
-        }
+        Ok(block_async!(self
+            .0
+            .download_with_ffmpeg(path, ffmpeg_args))?)
     }
 
     /// Get video URL

@@ -19,7 +19,7 @@ Download videos **blazing-fast** without getting stuck on Youtube download speed
 
 ## Roadmap
 
-- [ ] ffmpeg feature
+- [x] ffmpeg feature
 - [ ] benchmarks
 
 ## Features
@@ -28,6 +28,7 @@ Download videos **blazing-fast** without getting stuck on Youtube download speed
 - Search with query (Video, Playlist, Channel)
 - Blocking and asynchronous API
 - Proxy, IPv6, and cookie support on request
+- Built-in FFmpeg audio and video filter apply support. [Example](examples/download_with_ffmpeg.rs)
 - [CLI](https://crates.io/crates/rusty_ytdl-cli)
 
 # Usage
@@ -158,5 +159,5 @@ Or add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rusty_ytdl = "0.6.7"
+rusty_ytdl = "0.7.0"
 ```

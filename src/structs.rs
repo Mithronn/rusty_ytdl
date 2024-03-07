@@ -690,10 +690,11 @@ impl FFmpegArgs {
                     "-i".to_string(),
                     // aliases of pipe:0
                     "-".to_string(),
-                    // "-analyzeduration".to_string(),
-                    // "0".to_string(),
-                    // "-loglevel".to_string(),
-                    // "0".to_string(),
+                    // loggers
+                    "-analyzeduration".to_string(),
+                    "0".to_string(),
+                    "-loglevel".to_string(),
+                    "0".to_string(),
                 ],
                 args,
             ]

@@ -1,6 +1,6 @@
 #[ignore]
 #[tokio::test]
-async fn ffmpeg_test() {
+async fn ffmpeg_download_test() {
     #[cfg(feature = "ffmpeg")]
     {
         use rusty_ytdl::{FFmpegArgs, Video, VideoOptions, VideoQuality, VideoSearchOptions};
@@ -15,17 +15,16 @@ async fn ffmpeg_test() {
 
         let video = Video::new_with_options(url, video_options).unwrap();
 
-        let stream = video
-            .stream_with_ffmpeg(Some(FFmpegArgs {
-                format: Some("mp3".to_string()),
-                audio_filter: Some("aresample=48000,asetrate=48000*0.8".to_string()),
-                video_filter: Some("eq=brightness=150:saturation=2".to_string()),
-            }))
+        video
+            .download_with_ffmpeg(
+                r"./filter_applied_audio.mp3",
+                Some(FFmpegArgs {
+                    format: Some("mpegts".to_string()),
+                    audio_filter: Some("aresample=48000,asetrate=48000*0.8".to_string()),
+                    video_filter: Some("eq=brightness=150:saturation=2".to_string()),
+                }),
+            )
             .await
             .unwrap();
-
-        while let Some(chunk) = stream.chunk().await.unwrap() {
-            println!("{:#?}", chunk);
-        }
     }
 }

@@ -6,7 +6,9 @@ use crate::stream::segment::Segment;
 use crate::stream::streams::Stream;
 use crate::structs::VideoError;
 use crate::utils::{get_html, make_absolute_url};
+
 use async_trait::async_trait;
+use bytes::{Bytes, BytesMut};
 use m3u8_rs::parse_media_playlist;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -167,7 +169,7 @@ impl LiveStream {
 
 #[async_trait]
 impl Stream for LiveStream {
-    async fn chunk(&self) -> Result<Option<Vec<u8>>, VideoError> {
+    async fn chunk(&self) -> Result<Option<Bytes>, VideoError> {
         let segments = self.segments().await;
 
         // if stream end and no segments left end it
@@ -208,7 +210,7 @@ impl Stream for LiveStream {
         // cannot get any segments return empty buffer array
         let segments = self.segments().await;
         if segments.is_empty() {
-            return Ok(Some(vec![]));
+            return Ok(Some(Bytes::new()));
         }
 
         let first_segment = segments.first().unwrap();
@@ -228,20 +230,19 @@ impl Stream for LiveStream {
 
         let mut response = response.expect("IMPOSSIBLE");
 
-        let mut buf: Vec<u8> = vec![];
+        let mut buf: BytesMut = BytesMut::new();
 
         while let Some(chunk) = response.chunk().await.map_err(VideoError::Reqwest)? {
-            let chunk = chunk.to_vec();
-            buf.extend(chunk.iter());
+            buf.extend(chunk);
         }
 
         // Decrypt data bytes
-        buf = first_segment.1.decrypt(&self.client, &buf).await?;
+        buf = BytesMut::from_iter(first_segment.1.decrypt(&self.client, &buf).await?);
 
         // Delete downloaded segment from segments array
         let mut segment_vector = self.segments.write().await;
         segment_vector.remove(0);
 
-        Ok(Some(buf))
+        Ok(Some(buf.into()))
     }
 }

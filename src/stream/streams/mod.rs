@@ -2,6 +2,8 @@
 mod live;
 mod non_live;
 
+use bytes::Bytes;
+
 #[cfg(feature = "live")]
 pub use live::{LiveStream, LiveStreamOptions};
 pub use non_live::{NonLiveStream, NonLiveStreamOptions};
@@ -14,7 +16,7 @@ pub trait Stream {
     /// Stream a chunk of the [`u8`] bytes
     ///
     /// When the bytes has been exhausted, this will return `None`.
-    async fn chunk(&self) -> Result<Option<Vec<u8>>, VideoError>;
+    async fn chunk(&self) -> Result<Option<Bytes>, VideoError>;
 
     /// Content length of the stream
     ///

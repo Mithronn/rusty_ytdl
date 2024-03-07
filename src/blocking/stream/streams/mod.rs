@@ -1,3 +1,5 @@
+use bytes::Bytes;
+
 #[cfg(feature = "live")]
 pub use crate::stream::LiveStreamOptions;
 pub use crate::stream::NonLiveStreamOptions;
@@ -16,7 +18,7 @@ pub trait Stream {
     /// Stream a chunk of the [`u8`] bytes
     ///
     /// When the bytes has been exhausted, this will return `None`.
-    fn chunk(&self) -> Result<Option<Vec<u8>>, VideoError>;
+    fn chunk(&self) -> Result<Option<Bytes>, VideoError>;
 
     /// Content length of the stream
     ///

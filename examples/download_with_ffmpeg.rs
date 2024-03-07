@@ -1,6 +1,5 @@
-#[ignore]
-#[tokio::test]
-async fn ffmpeg_test() {
+#[tokio::main]
+async fn main() {
     #[cfg(feature = "ffmpeg")]
     {
         use rusty_ytdl::{FFmpegArgs, Video, VideoOptions, VideoQuality, VideoSearchOptions};
