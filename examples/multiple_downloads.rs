@@ -1,3 +1,5 @@
+use std::fs::File;
+
 use rusty_ytdl::*;
 
 #[tokio::main]
@@ -20,4 +22,5 @@ async fn main() {
         println!("Downloading: {}", info.video_details.title);
     }
     println!("Time taken: {:?}", instant.elapsed());
+    flame::dump_html(File::create("flamegraph.html").unwrap()).unwrap();
 }

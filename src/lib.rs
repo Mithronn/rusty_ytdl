@@ -3,6 +3,12 @@
 #![allow(unused_imports)]
 #![allow(clippy::type_complexity)]
 
+#[cfg(feature = "performance_analysis")]
+pub extern crate flame;
+#[cfg(feature = "performance_analysis")]
+#[macro_use] extern crate flamer;
+
+
 mod info;
 mod info_extras;
 mod structs;
