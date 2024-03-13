@@ -119,9 +119,17 @@ pub fn parse_related_video(
         "0".to_string()
     };
 
-    let regex = Regex::new(r"^\d").unwrap();
+    // This regex is not useful
+    // let regex = Regex::new(r"^\d").unwrap();
+    let first = |string: &str| {
+        string
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+    };
 
-    if !regex.is_match(&short_view_count) {
+    if !first(&short_view_count) {
         let rvs_details_index = rvs_params
             .iter()
             .map(|x| serde_qs::from_str::<QueryParams>(x).unwrap())
@@ -139,7 +147,7 @@ pub fn parse_related_video(
         }
     }
 
-    view_count = if regex.is_match(view_count) {
+    view_count = if first(view_count) {
         view_count
             .split(' ')
             .collect::<Vec<&str>>()
