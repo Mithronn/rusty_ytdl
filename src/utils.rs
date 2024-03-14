@@ -632,29 +632,37 @@ pub fn set_download_url(
             // Caching this would be great (~2ms x 2 gain/req on Ryzen 9 5950XT) but is quite hard because of the !Send nature of boa
             fn create_transform_script(script: &str) -> Context<'_> {
                 let mut context = boa_engine::Context::default();
-                context.eval(parse_source(
-                    script,
-                )).unwrap();
+                context.eval(parse_source(script)).unwrap();
                 context
             }
 
             #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-            fn parse_source<'a>(script: &'a str) -> Source<&'a [u8]> {
+            fn parse_source(script: &str) -> Source<&[u8]> {
                 boa_engine::Source::from_bytes(script)
             }
 
             #[cfg_attr(feature = "performance_analysis", flamer::flame)]
             // Optimizing the script would be great (~20ms x 2 gain/req on Ryzen 9 5950XT) but quite some work on boa side
             // This is where most of the time is spent
-            fn execute_transform_script(context: &mut Context, func_name: &str, n_transform_value: &str) -> JsValue{
-                context.eval(parse_source(&format!(
-                    r#"{func_name}("{n_transform_value}")"#,
-                ))).unwrap()
+            fn execute_transform_script(
+                context: &mut Context,
+                func_name: &str,
+                n_transform_value: &str,
+            ) -> JsValue {
+                context
+                    .eval(parse_source(&format!(
+                        r#"{func_name}("{n_transform_value}")"#,
+                    )))
+                    .unwrap()
             }
 
             let mut context = create_transform_script(n_transform_script_string.1.as_str());
 
-            let is_result_string = execute_transform_script(&mut context, n_transform_script_string.0.as_str(), n_transform_value);
+            let is_result_string = execute_transform_script(
+                &mut context,
+                n_transform_script_string.0.as_str(),
+                n_transform_value,
+            );
 
             let is_result_string = is_result_string.as_string();
 
@@ -1564,7 +1572,7 @@ pub(crate) fn between<'a>(haystack: &'a str, left: &'a str, right: &'a str) -> &
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
 // This function uses a state machine architecture and takes around 10µs per request on Ryzen 9 5950XT
 // The old function took around 30ms per request on the same CPU
-pub fn cut_after_js<'a>(mixed_json: &'a str) -> Option<&'a str> {
+pub fn cut_after_js(mixed_json: &str) -> Option<&str> {
     let bytes = mixed_json.as_bytes();
 
     // State:
