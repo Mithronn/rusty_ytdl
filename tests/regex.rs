@@ -1,5 +1,3 @@
-use rusty_ytdl;
-
 #[tokio::test]
 async fn is_valid_id_or_link() {
     use rusty_ytdl::get_video_id;

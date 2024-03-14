@@ -1,5 +1,3 @@
-use rusty_ytdl;
-
 #[tokio::test]
 async fn get_info_with_options() {
     use rusty_ytdl::{choose_format, Video, VideoOptions, VideoQuality, VideoSearchOptions};
