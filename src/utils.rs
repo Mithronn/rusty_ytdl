@@ -1,9 +1,15 @@
+use boa_engine::optimizer::OptimizerOptions;
+use boa_engine::{Context, JsValue, Source};
 use bytes::Bytes;
+use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::Mutex;
+use std::time::Instant;
+use tokio::sync::RwLock;
 use tokio::{io::AsyncWriteExt, process::Command};
 use unicode_segmentation::UnicodeSegmentation;
 use urlencoding::decode;
@@ -85,9 +91,13 @@ pub fn get_cver(info: &serde_json::Value) -> &str {
         .unwrap()
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn get_html5player(body: &str) -> Option<String> {
-    let html5player_res = Regex::new(r#"<script\s+src="([^"]+)"(?:\s+type="text\\//javascript")?\s+name="player_ias\\//base"\s*>|"jsUrl":"([^"]+)""#).unwrap();
-    let caps = html5player_res.captures(body).unwrap();
+    // Lazy gain ~0.2ms per req on Ryzen 9 7950XT (probably a lot more on slower CPUs)
+    static HTML5PLAYER_RES: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"<script\s+src="([^"]+)"(?:\s+type="text\\//javascript")?\s+name="player_ias\\//base"\s*>|"jsUrl":"([^"]+)""#).unwrap()
+    });
+    let caps = HTML5PLAYER_RES.captures(body).unwrap();
     match caps.get(2) {
         Some(caps) => Some(caps.as_str().to_string()),
         None => match caps.get(3) {
@@ -97,6 +107,7 @@ pub fn get_html5player(body: &str) -> Option<String> {
     }
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn parse_video_formats(
     info: &serde_json::Value,
     format_functions: Vec<(String, String)>,
@@ -116,12 +127,14 @@ pub fn parse_video_formats(
 
         let mut n_transform_cache: HashMap<String, String> = HashMap::new();
 
+        let mut cipher_cache: Option<(String, Context)> = None;
         for format in &mut formats {
             format.as_object_mut().map(|x| {
                 let new_url = set_download_url(
                     &mut serde_json::json!(x),
                     format_functions.clone(),
                     &mut n_transform_cache,
+                    &mut cipher_cache,
                 );
 
                 // Delete unnecessary cipher, signatureCipher
@@ -158,6 +171,7 @@ pub fn parse_video_formats(
     }
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) {
     if format.contains_key("qualityLabel") {
         format.insert("hasVideo".to_owned(), serde_json::Value::Bool(true));
@@ -171,32 +185,37 @@ pub fn add_format_meta(format: &mut serde_json::Map<String, serde_json::Value>) 
         format.insert("hasAudio".to_owned(), serde_json::Value::Bool(false));
     }
 
-    let regex_is_live = Regex::new(r"\bsource[/=]yt_live_broadcast\b").unwrap();
-    let regex_is_hls = Regex::new(r"/manifest/hls_(variant|playlist)/").unwrap();
-    let regex_is_dashmpd = Regex::new(r"/manifest/dash/").unwrap();
+    // 50µs gain/format on Ryzen 9 5950XT (probably a lot more on slower CPUs)
+    // Since each request has multiple formats, this saves around 0.5ms per request
+    static REGEX_IS_LIVE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"\bsource[/=]yt_live_broadcast\b").unwrap());
+    static REGEX_IS_HLS: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"/manifest/hls_(variant|playlist)/").unwrap());
+    static REGEX_IS_DASHMPD: Lazy<Regex> = Lazy::new(|| Regex::new(r"/manifest/dash/").unwrap());
 
     format.insert(
         "isLive".to_string(),
         serde_json::Value::Bool(
-            regex_is_live.is_match(format.get("url").and_then(|x| x.as_str()).unwrap_or("")),
+            REGEX_IS_LIVE.is_match(format.get("url").and_then(|x| x.as_str()).unwrap_or("")),
         ),
     );
 
     format.insert(
         "isHLS".to_string(),
         serde_json::Value::Bool(
-            regex_is_hls.is_match(format.get("url").and_then(|x| x.as_str()).unwrap_or("")),
+            REGEX_IS_HLS.is_match(format.get("url").and_then(|x| x.as_str()).unwrap_or("")),
         ),
     );
 
     format.insert(
         "isDashMPD".to_string(),
         serde_json::Value::Bool(
-            regex_is_dashmpd.is_match(format.get("url").and_then(|x| x.as_str()).unwrap_or("")),
+            REGEX_IS_DASHMPD.is_match(format.get("url").and_then(|x| x.as_str()).unwrap_or("")),
         ),
     );
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn filter_formats(formats: &mut Vec<VideoFormat>, options: &VideoSearchOptions) {
     match options {
         VideoSearchOptions::Audio => {
@@ -215,6 +234,7 @@ pub fn filter_formats(formats: &mut Vec<VideoFormat>, options: &VideoSearchOptio
 }
 
 /// Try to get format with [`VideoOptions`] filter
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn choose_format<'a>(
     formats: &'a [VideoFormat],
     options: &'a VideoOptions,
@@ -290,6 +310,7 @@ pub fn choose_format<'a>(
     }
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn sort_formats_by<F>(a: &VideoFormat, b: &VideoFormat, sort_by: Vec<F>) -> std::cmp::Ordering
 where
     F: Fn(&VideoFormat) -> i32,
@@ -308,6 +329,7 @@ where
     res
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
     sort_formats_by(
         a,
@@ -341,6 +363,7 @@ pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Orde
     )
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn sort_formats_by_audio(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
     sort_formats_by(
         a,
@@ -362,6 +385,7 @@ pub fn sort_formats_by_audio(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Orde
     )
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
     sort_formats_by(
         a,
@@ -420,10 +444,12 @@ pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
     )
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn set_download_url(
     format: &mut serde_json::Value,
     functions: Vec<(String, String)>,
     n_transform_cache: &mut HashMap<String, String>,
+    cipher_cache: &mut Option<(String, Context)>,
 ) -> serde_json::Value {
     let empty_string_serde_value = serde_json::json!("");
     #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -438,14 +464,17 @@ pub fn set_download_url(
     let decipher_script_string = functions.first().unwrap_or(&empty_script);
     let n_transform_script_string = functions.get(1).unwrap_or(&empty_script);
 
-    // println!(
-    //     "{:?}\n\n\n\n\n{:?}",
-    //     decipher_script_string, n_transform_script_string
-    // );
-
-    fn decipher(url: &str, decipher_script_string: &(String, String)) -> String {
-        let args: serde_json::value::Map<String, serde_json::Value> =
-            serde_qs::from_str(url).unwrap();
+    #[cfg_attr(feature = "performance_analysis", flamer::flame)]
+    fn decipher(
+        url: &str,
+        decipher_script_string: &(String, String),
+        cipher_cache: &mut Option<(String, Context)>,
+    ) -> String {
+        let args: serde_json::value::Map<String, serde_json::Value> = {
+            #[cfg(feature = "performance_analysis")]
+            let _guard = flame::start_guard("serde_qs::from_str");
+            serde_qs::from_str(url).unwrap()
+        };
 
         if args.get("s").is_none() || decipher_script_string.1.is_empty() {
             if args.get("url").is_none() {
@@ -456,25 +485,39 @@ pub fn set_download_url(
             }
         }
 
-        let mut context = boa_engine::Context::default();
-        let decipher_script = context.eval(boa_engine::Source::from_bytes(
-            decipher_script_string.1.as_str(),
-        ));
-
-        if decipher_script.is_err() {
-            if args.get("url").is_none() {
-                return url.to_string();
-            } else {
-                let args_url = args.get("url").and_then(|x| x.as_str()).unwrap_or("");
-                return args_url.to_string();
+        let context = match cipher_cache {
+            Some((ref cache_key, ref mut context)) if cache_key == &decipher_script_string.1 => {
+                context
             }
-        }
+            _ => {
+                #[cfg(feature = "performance_analysis")]
+                let _guard = flame::start_guard("build engine");
+                let mut context = boa_engine::Context::default();
+                let decipher_script = context.eval(boa_engine::Source::from_bytes(
+                    decipher_script_string.1.as_str(),
+                ));
+                if decipher_script.is_err() {
+                    if args.get("url").is_none() {
+                        return url.to_string();
+                    } else {
+                        let args_url = args.get("url").and_then(|x| x.as_str()).unwrap_or("");
+                        return args_url.to_string();
+                    }
+                }
+                *cipher_cache = Some((decipher_script_string.1.to_string(), context));
+                &mut cipher_cache.as_mut().unwrap().1
+            }
+        };
 
-        let result = context.eval(boa_engine::Source::from_bytes(&format!(
-            r#"{func_name}("{args}")"#,
-            func_name = decipher_script_string.0.as_str(),
-            args = args.get("s").and_then(|x| x.as_str()).unwrap_or("")
-        )));
+        let result = {
+            #[cfg(feature = "performance_analysis")]
+            let _guard = flame::start_guard("execute engine");
+            context.eval(boa_engine::Source::from_bytes(&format!(
+                r#"{func_name}("{args}")"#,
+                func_name = decipher_script_string.0.as_str(),
+                args = args.get("s").and_then(|x| x.as_str()).unwrap_or("")
+            )))
+        };
 
         if result.is_err() {
             if args.get("url").is_none() {
@@ -556,13 +599,18 @@ pub fn set_download_url(
         return_url.to_string()
     }
 
+    #[cfg_attr(feature = "performance_analysis", flamer::flame)]
     fn ncode(
         url: &str,
         n_transform_script_string: &(String, String),
         n_transfrom_cache: &mut HashMap<String, String>,
     ) -> String {
-        let components: serde_json::value::Map<String, serde_json::Value> =
-            serde_qs::from_str(&decode(url).unwrap_or(std::borrow::Cow::Borrowed(url))).unwrap();
+        #[cfg_attr(feature = "performance_analysis", flamer::flame)]
+        fn get_components(url: &str) -> serde_json::value::Map<String, serde_json::Value> {
+            serde_qs::from_str(&decode(url).unwrap_or(std::borrow::Cow::Borrowed(url))).unwrap()
+        }
+
+        let components = get_components(url);
 
         if components.get("n").is_none()
             || components.get("n").and_then(|x| x.as_str()).is_none()
@@ -580,26 +628,43 @@ pub fn set_download_url(
         if let Some(&result) = n_transfrom_cache.get(n_transform_value).as_ref() {
             n_transform_result = result.clone();
         } else {
-            let mut context = boa_engine::Context::default();
-            let n_transform_script = context.eval(boa_engine::Source::from_bytes(
-                n_transform_script_string.1.as_str(),
-            ));
-
-            if n_transform_script.is_err() {
-                return url.to_string();
+            #[cfg_attr(feature = "performance_analysis", flamer::flame)]
+            // Caching this would be great (~2ms x 2 gain/req on Ryzen 9 5950XT) but is quite hard because of the !Send nature of boa
+            fn create_transform_script(script: &str) -> Context<'_> {
+                let mut context = boa_engine::Context::default();
+                context.eval(parse_source(script)).unwrap();
+                context
             }
 
-            let result = context.eval(boa_engine::Source::from_bytes(&format!(
-                r#"{func_name}("{args}")"#,
-                func_name = n_transform_script_string.0.as_str(),
-                args = n_transform_value
-            )));
-
-            if result.is_err() {
-                return url.to_string();
+            #[cfg_attr(feature = "performance_analysis", flamer::flame)]
+            fn parse_source(script: &str) -> Source<&[u8]> {
+                boa_engine::Source::from_bytes(script)
             }
 
-            let is_result_string = result.as_ref().unwrap().as_string();
+            #[cfg_attr(feature = "performance_analysis", flamer::flame)]
+            // Optimizing the script would be great (~20ms x 2 gain/req on Ryzen 9 5950XT) but quite some work on boa side
+            // This is where most of the time is spent
+            fn execute_transform_script(
+                context: &mut Context,
+                func_name: &str,
+                n_transform_value: &str,
+            ) -> JsValue {
+                context
+                    .eval(parse_source(&format!(
+                        r#"{func_name}("{n_transform_value}")"#,
+                    )))
+                    .unwrap()
+            }
+
+            let mut context = create_transform_script(n_transform_script_string.1.as_str());
+
+            let is_result_string = execute_transform_script(
+                &mut context,
+                n_transform_script_string.0.as_str(),
+                n_transform_value,
+            );
+
+            let is_result_string = is_result_string.as_string();
 
             if is_result_string.is_none() {
                 return url.to_string();
@@ -662,7 +727,7 @@ pub fn set_download_url(
         return_format.insert(
             "url".to_string(),
             serde_json::json!(&ncode(
-                decipher(url, decipher_script_string).as_str(),
+                decipher(url, decipher_script_string, cipher_cache).as_str(),
                 n_transform_script_string,
                 n_transform_cache
             )),
@@ -690,6 +755,7 @@ pub fn set_download_url(
 }
 
 /// Excavate video id from URLs or id with Regex
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn get_video_id(url: &str) -> Option<String> {
     let url_regex = Regex::new(r"^https?://").unwrap();
 
@@ -702,18 +768,20 @@ pub fn get_video_id(url: &str) -> Option<String> {
     }
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn validate_id(id: String) -> bool {
     let id_regex = Regex::new(r"^[a-zA-Z0-9-_]{11}$").unwrap();
 
     id_regex.is_match(id.trim())
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 fn get_url_video_id(url: &str) -> Option<String> {
-    let valid_path_domains =
-        // Regex::new(r"^https?:\\//\\//(youtu\.be\\//|(www\.)?youtube\.com\\//(embed|v|shorts)\\//)")
-        //     .unwrap();
+    // 1ms gain/req on Ryzen 9 5950XT (probably a lot more on slower CPUs)
+    static VALID_PATH_DOMAINS: Lazy<Regex> = Lazy::new(|| {
         Regex::new(r"(?m)(?:^|\W)(?:youtube(?:-nocookie)?\.com/(?:.*[?&]v=|v/|shorts/|e(?:mbed)?/|[^/]+/.+/)|youtu\.be/)([\w-]+)")
-        .unwrap();
+        .unwrap()
+    });
 
     let parsed_result = url::Url::parse(url.trim());
 
@@ -731,8 +799,8 @@ fn get_url_video_id(url: &str) -> Option<String> {
         }
     }
 
-    if valid_path_domains.is_match(url.trim()) && id.is_none() {
-        let captures = valid_path_domains.captures(url.trim());
+    if VALID_PATH_DOMAINS.is_match(url.trim()) && id.is_none() {
+        let captures = VALID_PATH_DOMAINS.captures(url.trim());
         // println!("{:#?}", captures);
         if let Some(captures_some) = captures {
             let id_group = captures_some.get(1);
@@ -761,6 +829,7 @@ fn get_url_video_id(url: &str) -> Option<String> {
     }
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn get_text(obj: &serde_json::Value) -> &serde_json::Value {
     let null_referance = &serde_json::Value::Null;
     obj.as_object()
@@ -779,6 +848,7 @@ pub fn get_text(obj: &serde_json::Value) -> &serde_json::Value {
         .unwrap_or(null_referance)
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn clean_video_details(
     initial_response: &serde_json::Value,
     player_response: &serde_json::Value,
@@ -1019,6 +1089,7 @@ pub fn clean_video_details(
     }
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn is_verified(badges: &serde_json::Value) -> bool {
     badges
         .as_array()
@@ -1036,6 +1107,7 @@ pub fn is_verified(badges: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn is_age_restricted(media: &serde_json::Value) -> bool {
     let mut age_restricted = false;
     if media.is_object() && media.as_object().is_some() {
@@ -1062,6 +1134,7 @@ pub fn is_age_restricted(media: &serde_json::Value) -> bool {
     age_restricted
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn is_rental(player_response: &serde_json::Value) -> bool {
     let playability = player_response.get("playabilityStatus");
 
@@ -1080,6 +1153,7 @@ pub fn is_rental(player_response: &serde_json::Value) -> bool {
             .is_some()
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn is_not_yet_broadcasted(player_response: &serde_json::Value) -> bool {
     let playability = player_response.get("playabilityStatus");
 
@@ -1094,6 +1168,7 @@ pub fn is_not_yet_broadcasted(player_response: &serde_json::Value) -> bool {
         == "LIVE_STREAM_OFFLINE"
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn is_play_error(player_response: &serde_json::Value, statuses: Vec<&str>) -> bool {
     let playability = player_response
         .get("playabilityStatus")
@@ -1106,6 +1181,7 @@ pub fn is_play_error(player_response: &serde_json::Value, statuses: Vec<&str>) -
     false
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn is_private_video(player_response: &serde_json::Value) -> bool {
     if player_response
         .get("playabilityStatus")
@@ -1120,6 +1196,13 @@ pub fn is_private_video(player_response: &serde_json::Value) -> bool {
     false
 }
 
+// Cache hit reported ~90% of the time with one entry
+// 98% of the time with two entries but twice as much memory used (Probably insignificant)
+// No gain for the first execution but then ~80ms gain per query on my computer
+static FUNCTIONS: Lazy<RwLock<Option<(String, Vec<(String, String)>)>>> =
+    Lazy::new(|| RwLock::new(None));
+
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub async fn get_functions(
     html5player: impl Into<String>,
     client: &reqwest_middleware::ClientWithMiddleware,
@@ -1130,17 +1213,33 @@ pub async fn get_functions(
 
     let url = url.as_str();
 
+    {
+        // Check if an URL is already cached
+        if let Some((cached_url, cached_functions)) = FUNCTIONS.read().await.as_ref() {
+            // Check if the cache is the same as the URL
+            if cached_url == url {
+                return Ok(cached_functions.clone());
+            }
+        }
+    }
+
     let response = get_html(client, url, None).await?;
 
-    Ok(extract_functions(response))
+    let functions = extract_functions(response);
+
+    // Update the cache
+    {
+        *FUNCTIONS.write().await = Some((url.to_string(), functions.clone()));
+    }
+
+    Ok(functions)
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn extract_functions(body: String) -> Vec<(String, String)> {
     let mut functions: Vec<(String, String)> = vec![];
 
-    // let mut cut_after_js_script =
-    //     js_sandbox::Script::from_string(CUT_AFTER_JS).expect("cut_after_js function error");
-
+    #[cfg_attr(feature = "performance_analysis", flamer::flame)]
     fn extract_manipulations(
         body: String,
         caller: &str,
@@ -1163,13 +1262,14 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
         // let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
         // let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("null"));
 
-        let cut_after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("null"));
+        let cut_after_sub_body = cut_after_js(sub_body).unwrap_or("null");
 
         let return_formatted_string = format!("var {function_name}={cut_after_sub_body}");
 
         return_formatted_string
     }
 
+    #[cfg_attr(feature = "performance_analysis", flamer::flame)]
     fn extract_decipher(
         body: String,
         functions: &mut Vec<(String, String)>,
@@ -1187,7 +1287,7 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
                 // let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
                 // let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
 
-                let cut_after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}"));
+                let cut_after_sub_body = cut_after_js(sub_body).unwrap_or("{}");
 
                 let mut function_body = format!("var {function_start}{cut_after_sub_body}");
 
@@ -1207,6 +1307,7 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
         }
     }
 
+    #[cfg_attr(feature = "performance_analysis", flamer::flame)]
     fn extract_ncode(
         body: String,
         functions: &mut Vec<(String, String)>,
@@ -1239,7 +1340,7 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
                 // let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
                 // let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
 
-                let cut_after_sub_body = cut_after_js(sub_body).unwrap_or(String::from("{}"));
+                let cut_after_sub_body = cut_after_js(sub_body).unwrap_or("{}");
 
                 let mut function_body = format!("var {function_start}{cut_after_sub_body};");
 
@@ -1265,10 +1366,13 @@ pub async fn get_html(
     url: impl Into<String>,
     headers: Option<&reqwest::header::HeaderMap>,
 ) -> Result<String, VideoError> {
+    let url = url.into();
+    #[cfg(feature = "performance_analysis")]
+    let _guard = flame::start_guard(format!("get_html {url}"));
     let request = if let Some(some_headers) = headers {
-        client.get(url.into()).headers(some_headers.clone())
+        client.get(url).headers(some_headers.clone())
     } else {
-        client.get(url.into())
+        client.get(url)
     }
     .send()
     .await;
@@ -1291,6 +1395,7 @@ pub async fn get_html(
 /// ```ignore
 /// let ipv6: std::net::IpAddr = get_random_v6_ip("2001:4::/48")?;
 /// ```
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, VideoError> {
     let ipv6_format: String = ip.into();
 
@@ -1341,6 +1446,7 @@ pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, Video
     Ok(std::net::IpAddr::from(random_addr))
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn normalize_ip(ip: impl Into<String>) -> Vec<u16> {
     let ip: String = ip.into();
     let parts = ip
@@ -1367,6 +1473,7 @@ pub fn normalize_ip(ip: impl Into<String>) -> Vec<u16> {
     full_ip
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn make_absolute_url(base: &str, url: &str) -> Result<url::Url, VideoError> {
     match url::Url::parse(url) {
         Ok(u) => Ok(u),
@@ -1378,6 +1485,7 @@ pub fn make_absolute_url(base: &str, url: &str) -> Result<url::Url, VideoError> 
     }
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn time_to_ms(duration: &str) -> usize {
     let mut ms = 0;
     for (i, curr) in duration.split(':').rev().enumerate() {
@@ -1387,9 +1495,11 @@ pub fn time_to_ms(duration: &str) -> usize {
     ms
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn parse_abbreviated_number(time_str: &str) -> usize {
     let replaced_string = time_str.replace(',', ".").replace(' ', "");
-    let string_match_regex = Regex::new(r"([\d,.]+)([MK]?)").unwrap();
+    // Saves 0.1ms per request on Ryzen 9 5950XT (probably a lot more on slower CPUs)
+    let string_match_regex: Lazy<Regex> = Lazy::new(|| Regex::new(r"([\d,.]+)([MK]?)").unwrap());
     // let mut return_value = 0usize;
 
     let caps = string_match_regex
@@ -1426,6 +1536,7 @@ pub fn parse_abbreviated_number(time_str: &str) -> usize {
     return_value
 }
 
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn merge(a: &mut serde_json::Value, b: &serde_json::Value) {
     match (a, b) {
         (&mut serde_json::Value::Object(ref mut a), serde_json::Value::Object(b)) => {
@@ -1439,27 +1550,7 @@ pub fn merge(a: &mut serde_json::Value, b: &serde_json::Value) {
     }
 }
 
-// pub fn between<'a>(haystack: &'a str, left: &'a str, right: &'a str) -> &'a str {
-//     let left_index = haystack.find(left);
-//     if left_index.is_none() {
-//         return "";
-//     }
-
-//     let mut pos = left_index.unwrap();
-//     pos += left.len();
-
-//     let mut return_str = haystack.slice(pos..);
-//     let right_index = return_str.find(right);
-//     if right_index.is_none() {
-//         return "";
-//     }
-
-//     let second_pos = right_index.unwrap();
-
-//     return_str = return_str.substring(0, second_pos);
-//     return_str
-// }
-
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub(crate) fn between<'a>(haystack: &'a str, left: &'a str, right: &'a str) -> &'a str {
     let pos: usize;
 
@@ -1478,97 +1569,71 @@ pub(crate) fn between<'a>(haystack: &'a str, left: &'a str, right: &'a str) -> &
     }
 }
 
-pub fn cut_after_js(mixed_json: &str) -> Option<String> {
-    let (open, close) = match mixed_json.slice(0..=0) {
-        "[" => ("[", "]"),
-        "{" => ("{", "}"),
-        _ => {
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
+// This function uses a state machine architecture and takes around 10µs per request on Ryzen 9 5950XT
+// The old function took around 30ms per request on the same CPU
+pub fn cut_after_js(mixed_json: &str) -> Option<&str> {
+    let bytes = mixed_json.as_bytes();
+
+    // State:
+    let mut index = 0;
+    let mut nest = 0;
+    let mut last_significant: Option<u8> = None;
+
+    // Update function
+    while nest > 0 || index == 0 {
+        if index >= bytes.len() {
             return None;
         }
-    };
-
-    let mut is_escaped_object: Option<EscapeSequence> = None;
-
-    // States if the current character is escaped or not
-    let mut is_escaped = false;
-
-    // Current open brackets to be closed
-    let mut counter = 0;
-
-    let mixed_json_unicode = mixed_json.graphemes(true).collect::<Vec<&str>>();
-    for (i, value) in mixed_json_unicode.iter().enumerate() {
-        let value = <&str>::clone(value);
-
-        if !is_escaped
-            && is_escaped_object.as_ref().is_some()
-            && value
-                == is_escaped_object
-                    .as_ref()
-                    .map(|x| x.end.as_str())
-                    .unwrap_or("57")
-        {
-            is_escaped_object = None;
-            continue;
-        }
-
-        if !is_escaped && is_escaped_object.is_none() {
-            for escaped in ESCAPING_SEQUENZES.iter() {
-                if value != escaped.start.as_str() {
-                    continue;
-                }
-
-                let substring_start_number = if i <= 10 { 0usize } else { i - 10 };
-
-                // println!(
-                //     "regex test str: {}\nregex test str length: {}\ntest result: {}\nindex: {}\nindex - 10: {}\n",
-                //     mixed_json.substring(substring_start_number, i),
-                //     mixed_json.substring(substring_start_number, i).len(),
-                //     escaped
-                //         .start_prefix
-                //         .as_ref()
-                //         .map(|x| x.is_match(mixed_json.substring(substring_start_number, i)))
-                //         .unwrap_or(false),
-                //     i,
-                //     (i as i32 - 10)
-                // );
-
-                if escaped.start_prefix.is_none()
-                    || escaped
-                        .start_prefix
-                        .as_ref()
-                        .map(|x| x.is_match(mixed_json.substring(substring_start_number, i)))
-                        .unwrap_or(false)
-                {
-                    is_escaped_object = Some(escaped.clone());
-                    break;
+        let char = bytes[index];
+        match char {
+            // Update the nest
+            b'{' | b'[' | b'(' => nest += 1,
+            b'}' | b']' | b')' => nest -= 1,
+            // Skip strings
+            b'"' | b'\'' | b'`' => {
+                index += 1;
+                while bytes[index] != char {
+                    if bytes[index] == b'\\' {
+                        index += 1;
+                    }
+                    index += 1;
                 }
             }
-
-            if is_escaped_object.is_some() {
+            // Skip comments
+            b'/' if bytes[index + 1] == b'*' => {
+                index += 2;
+                while !(bytes[index] == b'*' && bytes[index + 1] == b'/') {
+                    index += 1;
+                }
+                index += 2;
                 continue;
             }
+            // Skip regexes
+            b'/' if last_significant
+                .as_ref()
+                .map(|x| !x.is_ascii_alphanumeric())
+                .unwrap_or(false) =>
+            {
+                index += 1;
+                while bytes[index] != char {
+                    if bytes[index] == b'\\' {
+                        index += 1;
+                    }
+                    index += 1;
+                }
+            }
+            // Save the last significant character for the regex check
+            a if !a.is_ascii_whitespace() => last_significant = Some(a),
+            _ => (),
         }
-
-        is_escaped = value == "\\" && !is_escaped;
-
-        if is_escaped_object.is_some() {
-            continue;
-        }
-
-        if value == open {
-            counter += 1;
-        } else if value == close {
-            counter -= 1;
-        }
-
-        if counter == 0 {
-            return Some(mixed_json.substring(0, i + 1).to_string());
-        }
+        index += 1;
     }
-
-    None
+    if index == 1 {
+        return None;
+    }
+    Some(&mixed_json[0..index])
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1576,110 +1641,106 @@ mod tests {
     #[test]
     fn test_cut_after_js() {
         assert_eq!(
-            cut_after_js(r#"{"a": 1, "b": 1}"#).unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": 1, "b": 1}"#).unwrap_or(""),
             r#"{"a": 1, "b": 1}"#.to_string()
         );
         println!("[PASSED] test_works_with_simple_json");
 
         assert_eq!(
-            cut_after_js(r#"{"a": 1, "b": 1}abcd"#).unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": 1, "b": 1}abcd"#).unwrap_or(""),
             r#"{"a": 1, "b": 1}"#.to_string()
         );
         println!("[PASSED] test_cut_extra_characters_after_json");
 
         assert_eq!(
-            cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or(""),
             r#"{"a": "}1", "b": 1}"#.to_string()
         );
         println!("[PASSED] test_tolerant_to_double_quoted_string_constants");
 
         assert_eq!(
-            cut_after_js(r#"{"a": '}1', "b": 1}abcd"#).unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": '}1', "b": 1}abcd"#).unwrap_or(""),
             r#"{"a": '}1', "b": 1}"#.to_string()
         );
         println!("[PASSED] test_tolerant_to_single_quoted_string_constants");
 
         let str = "[-1816574795, '\",;/[;', function asdf() { a = 2/3; return a;}]";
         assert_eq!(
-            cut_after_js(format!("{}abcd", str).as_str()).unwrap_or("".to_string()),
+            cut_after_js(format!("{}abcd", str).as_str()).unwrap_or(""),
             str.to_string()
         );
         println!("[PASSED] test_tolerant_to_complex_single_quoted_string_constants");
 
         assert_eq!(
-            cut_after_js(r#"{"a": `}1`, "b": 1}abcd"#).unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": `}1`, "b": 1}abcd"#).unwrap_or(""),
             r#"{"a": `}1`, "b": 1}"#.to_string()
         );
         println!("[PASSED] test_tolerant_to_back_tick_quoted_string_constants");
 
         assert_eq!(
-            cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": "}1", "b": 1}abcd"#).unwrap_or(""),
             r#"{"a": "}1", "b": 1}"#.to_string()
         );
         println!("[PASSED] test_tolerant_to_string_constants");
 
         assert_eq!(
-            cut_after_js(r#"{"a": "\"}1", "b": 1}abcd"#).unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": "\"}1", "b": 1}abcd"#).unwrap_or(""),
             r#"{"a": "\"}1", "b": 1}"#.to_string()
         );
         println!("[PASSED] test_tolerant_to_string_with_escaped_quoting");
 
         assert_eq!(
-            cut_after_js(r#"{"a": "\"}1", "b": 1, "c": /[0-9]}}\/}/}abcd"#)
-                .unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": "\"}1", "b": 1, "c": /[0-9]}}\/}/}abcd"#).unwrap_or(""),
             r#"{"a": "\"}1", "b": 1, "c": /[0-9]}}\/}/}"#.to_string()
         );
         println!("[PASSED] test_tolerant_to_string_with_regexes");
 
         assert_eq!(
             cut_after_js(r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}abcd"#)
-                .unwrap_or("".to_string()),
+                .unwrap_or(""),
             r#"{"a": [-1929233002,b,/,][}",],()}(\[)/,2070160835,1561177444]}"#.to_string()
         );
         println!("[PASSED] test_tolerant_to_string_with_regexes_in_arrays");
 
         assert_eq!(
-            cut_after_js(r#"{"a": "\"}1", "b": 1, "c": [4/6, /[0-9]}}\/}/]}abcd"#)
-                .unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": "\"}1", "b": 1, "c": [4/6, /[0-9]}}\/}/]}abcd"#).unwrap_or(""),
             r#"{"a": "\"}1", "b": 1, "c": [4/6, /[0-9]}}\/}/]}"#.to_string()
         );
         println!("[PASSED] test_does_not_fail_for_division_followed_by_a_regex");
 
         assert_eq!(
-            cut_after_js(r#"{"a": "\"1", "b": 1, "c": {"test": 1}}abcd"#).unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": "\"1", "b": 1, "c": {"test": 1}}abcd"#).unwrap_or(""),
             r#"{"a": "\"1", "b": 1, "c": {"test": 1}}"#.to_string()
         );
         println!("[PASSED] test_works_with_nested_objects");
 
         let test_str = r#"{"a": "\"1", "b": 1, "c": () => { try { /* do sth */ } catch (e) { a = [2+3] }; return 5}}"#;
         assert_eq!(
-            cut_after_js(format!("{}abcd", test_str).as_str()).unwrap_or("".to_string()),
+            cut_after_js(format!("{}abcd", test_str).as_str()).unwrap_or(""),
             test_str.to_string()
         );
         println!("[PASSED] test_works_with_try_catch");
 
         assert_eq!(
-            cut_after_js(r#"{"a": "\"фыва", "b": 1, "c": {"test": 1}}abcd"#)
-                .unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": "\"фыва", "b": 1, "c": {"test": 1}}abcd"#).unwrap_or(""),
             r#"{"a": "\"фыва", "b": 1, "c": {"test": 1}}"#.to_string()
         );
         println!("[PASSED] test_works_with_utf");
 
         assert_eq!(
-            cut_after_js(r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}abcd"#)
-                .unwrap_or("".to_string()),
+            cut_after_js(r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}abcd"#).unwrap_or(""),
             r#"{"a": "\\\\фыва", "b": 1, "c": {"test": 1}}"#.to_string()
         );
         println!("[PASSED] test_works_with_backslashes_in_string");
 
         assert_eq!(
-            cut_after_js(r#"{"text": "\\\\"};"#).unwrap_or("".to_string()),
+            cut_after_js(r#"{"text": "\\\\"};"#).unwrap_or(""),
             r#"{"text": "\\\\"}"#.to_string()
         );
         println!("[PASSED] test_works_with_backslashes_towards_end_of_string");
 
         assert_eq!(
-            cut_after_js(r#"[{"a": 1}, {"b": 2}]abcd"#).unwrap_or("".to_string()),
+            cut_after_js(r#"[{"a": 1}, {"b": 2}]abcd"#).unwrap_or(""),
             r#"[{"a": 1}, {"b": 2}]"#.to_string()
         );
         println!("[PASSED] test_works_with_array_as_start");

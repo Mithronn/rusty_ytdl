@@ -35,6 +35,7 @@ pub struct Video {
 
 impl Video {
     /// Crate [`Video`] struct to get info or download with default [`VideoOptions`]
+    #[cfg_attr(feature = "performance_analysis", flamer::flame)]
     pub fn new(url_or_id: impl Into<String>) -> Result<Self, VideoError> {
         let video_id = get_video_id(&url_or_id.into()).ok_or(VideoError::VideoNotFound)?;
 
@@ -112,6 +113,7 @@ impl Video {
 
     /// Try to get basic information about video
     /// - `HLS` and `DashMPD` formats excluded!
+    #[cfg_attr(feature = "performance_analysis", flamer::flame)]
     pub async fn get_basic_info(&self) -> Result<VideoInfo, VideoError> {
         let client = &self.client;
 
@@ -195,18 +197,21 @@ impl Video {
         Ok(VideoInfo {
             dash_manifest_url,
             hls_manifest_url,
-            formats: parse_video_formats(
-                &player_response,
-                get_functions(get_html5player(response.as_str()).unwrap(), client).await?,
-            )
-            .unwrap_or_default(),
-            related_videos: get_related_videos(&initial_response).unwrap_or_default(),
+            formats: {
+                parse_video_formats(
+                    &player_response,
+                    get_functions(get_html5player(response.as_str()).unwrap(), client).await?,
+                )
+                .unwrap_or_default()
+            },
+            related_videos: { get_related_videos(&initial_response).unwrap_or_default() },
             video_details,
         })
     }
 
     /// Try to get full information about video
     /// - `HLS` and `DashMPD` formats included!
+    #[cfg_attr(feature = "performance_analysis", flamer::flame)]
     pub async fn get_info(&self) -> Result<VideoInfo, VideoError> {
         let client = &self.client;
 

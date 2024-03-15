@@ -1,25 +1,25 @@
 use clap::Parser;
-use serde::{Deserialize, Serialize};
 use rusty_ytdl::VideoQuality;
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
 pub struct VideoOptionsArgs {
     /// Pick a Stream, that contains only video track
     #[clap(
-        long, 
+        long,
         conflicts_with_all(& ["only_audio"])
     )]
     pub only_video: bool,
 
     /// Pick a Stream, that contains only audio track
     #[clap(
-        long, 
+        long,
         conflicts_with_all(& ["only_video"])
     )]
     pub only_audio: bool,
 
     /// Download the stream with this quality
-    /// 
+    ///
     /// [possible_values: highest, lowest, highest_audio, lowest_audio, highest_video, lowest_video]
     #[clap(
     long,

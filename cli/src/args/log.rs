@@ -12,7 +12,7 @@ pub struct LogArgs {
     /// (-v = Error, ..., -vvvvv = Trace)
     /// (other crates have log level Warn)
     #[clap(
-        long, 
+        long,
         short,
         action = clap::ArgAction::Count,
         global = true,

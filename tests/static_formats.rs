@@ -1,5 +1,3 @@
-use rusty_ytdl;
-
 #[tokio::test]
 async fn formats_str_to_json() {
     use rusty_ytdl::constants::FORMATS;

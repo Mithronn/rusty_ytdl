@@ -1,5 +1,3 @@
-use rusty_ytdl;
-
 #[tokio::test]
 async fn get_info() {
     use rusty_ytdl::Video;
