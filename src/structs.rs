@@ -158,6 +158,24 @@ pub struct DownloadOptions {
 #[derive(Clone, Debug, Default, derive_more::Display)]
 #[display(fmt = "RequestOptions()")]
 pub struct RequestOptions {
+    /// [`reqwest::Client`] to on use request. If provided in the request options `proxy`, `cookies`, and `ipv6_block` will be ignored
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    ///     let video_options = VideoOptions {
+    ///         request_options: RequestOptions {
+    ///              client: Some(
+    ///                  reqwest::Client::builder()
+    ///                  .build()
+    ///                  .unwrap(),
+    ///              ),
+    ///              ..Default::default()
+    ///         },
+    ///         ..Default::default()
+    ///     };
+    /// ```
+    pub client: Option<reqwest::Client>,
     /// [`reqwest::Proxy`] to on use request
     ///
     /// # Example
@@ -259,6 +277,9 @@ pub enum VideoError {
     /// Downloading live streams not supported, compile with `live` feature to enable
     #[error("Downloading live streams not supported, compile with `live` feature to enable")]
     LiveStreamNotSupported,
+    /// Provided cookie contains invalid header value characters, an error is returned. Only visible ASCII characters (32-127) are permitted.
+    #[error("Provided cookie contains invalid header value characters, an error is returned. Only visible ASCII characters (32-127) are permitted")]
+    CookieError,
     /// FFmpeg command error
     #[error("FFmpeg command error: {0}")]
     #[cfg(feature = "ffmpeg")]

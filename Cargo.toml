@@ -1,6 +1,6 @@
 [package]
 name = "rusty_ytdl"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["Mithronn"]
 edition = "2021"
 description = "A Rust library for Youtube video searcher and downloader"
@@ -70,3 +70,11 @@ rustls-tls = ["reqwest/rustls-tls"]
 [[example]]
 name = "multiple_downloads"
 required-features = ["performance_analysis"]
+
+[[example]]
+name = "blocking"
+required-features = ["blocking"]
+
+[[example]]
+name = "download_with_ffmpeg"
+required-features = ["ffmpeg"]

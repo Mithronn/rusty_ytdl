@@ -136,9 +136,13 @@ impl Video {
     ///
     ///     let video = Video::new(video_url).unwrap();
     ///
-    ///     let stream = video.stream().await.unwrap();
+    ///     let stream = video.stream_with_ffmpeg(Some(FFmpegArgs {
+    ///            format: Some("mp3".to_string()),
+    ///            audio_filter: Some("aresample=48000,asetrate=48000*0.8".to_string()),
+    ///            video_filter: Some("eq=brightness=150:saturation=2".to_string()),
+    ///        })).unwrap();
     ///
-    ///     while let Some(chunk) = stream.chunk().await.unwrap() {
+    ///     while let Some(chunk) = stream.chunk().unwrap() {
     ///           println!("{:#?}", chunk);
     ///     }
     /// ```

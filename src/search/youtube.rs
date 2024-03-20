@@ -52,31 +52,33 @@ impl YouTube {
 
     /// Create new YouTube search struct with custom [`RequestOptions`]
     pub fn new_with_options(request_options: &RequestOptions) -> Result<Self, VideoError> {
-        let mut client = reqwest::Client::builder();
+        let client = if let Some(client) = request_options.client.as_ref() {
+            client.clone()
+        } else {
+            let mut client = reqwest::Client::builder();
 
-        // Assign request options to client
-        if request_options.proxy.is_some() {
-            let proxy = request_options.proxy.as_ref().unwrap().clone();
-            client = client.proxy(proxy);
-        }
+            // Assign request options to client
 
-        if request_options.ipv6_block.is_some() {
-            let ipv6 = request_options.ipv6_block.as_ref().unwrap();
-            let ipv6 = get_random_v6_ip(ipv6)?;
-            client = client.local_address(ipv6);
-        }
+            if let Some(proxy) = request_options.proxy.as_ref() {
+                client = client.proxy(proxy.clone());
+            }
 
-        if request_options.cookies.is_some() {
-            let cookie = request_options.cookies.as_ref().unwrap();
-            let host = "https://youtube.com".parse::<url::Url>().unwrap();
+            if let Some(ipv6_block) = request_options.ipv6_block.as_ref() {
+                let ipv6 = get_random_v6_ip(ipv6_block)?;
+                client = client.local_address(ipv6);
+            }
 
-            let jar = reqwest::cookie::Jar::default();
-            jar.add_cookie_str(cookie.as_str(), &host);
+            if let Some(cookie) = request_options.cookies.as_ref() {
+                let host = "https://youtube.com".parse::<url::Url>().unwrap();
 
-            client = client.cookie_provider(Arc::new(jar));
-        }
+                let jar = reqwest::cookie::Jar::default();
+                jar.add_cookie_str(cookie, &host);
 
-        let client = client.build().map_err(VideoError::Reqwest)?;
+                client = client.cookie_provider(Arc::new(jar));
+            }
+
+            client.build().map_err(VideoError::Reqwest)?
+        };
 
         let client = reqwest_middleware::ClientBuilder::new(client).build();
 
@@ -166,7 +168,8 @@ impl YouTube {
         if options.safe_search {
             headers.insert(
                 reqwest::header::COOKIE,
-                reqwest::header::HeaderValue::from_str(SAFE_SEARCH_COOKIE).unwrap(),
+                reqwest::header::HeaderValue::from_str(SAFE_SEARCH_COOKIE)
+                    .expect("SAFE_SEARCH_COOKIE contain not ASCII"),
             );
         }
 
@@ -1350,7 +1353,8 @@ async fn make_request(
     if search_options.safe_search {
         headers.insert(
             reqwest::header::COOKIE,
-            reqwest::header::HeaderValue::from_str(SAFE_SEARCH_COOKIE).unwrap(),
+            reqwest::header::HeaderValue::from_str(SAFE_SEARCH_COOKIE)
+                .expect("SAFE_SEARCH_COOKIE contain not ASCII"),
         );
     }
 

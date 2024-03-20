@@ -69,28 +69,33 @@ impl Video {
     ) -> Result<Self, VideoError> {
         let video_id = get_video_id(&url_or_id.into()).ok_or(VideoError::VideoNotFound)?;
 
-        let mut client = reqwest::Client::builder();
+        let client = if let Some(client) = options.request_options.client.as_ref() {
+            client.clone()
+        } else {
+            let mut client = reqwest::Client::builder();
 
-        if options.request_options.proxy.is_some() {
-            client = client.proxy(options.request_options.proxy.as_ref().unwrap().clone());
-        }
+            if let Some(proxy) = options.request_options.proxy.as_ref() {
+                client = client.proxy(proxy.clone());
+            }
 
-        if options.request_options.ipv6_block.is_some() {
-            let ipv6 = get_random_v6_ip(options.request_options.ipv6_block.as_ref().unwrap())?;
-            client = client.local_address(ipv6);
-        }
+            if let Some(ipv6_block) = options.request_options.ipv6_block.as_ref() {
+                let ipv6 = get_random_v6_ip(ipv6_block)?;
+                client = client.local_address(ipv6);
+            }
 
-        if options.request_options.cookies.is_some() {
-            let cookie = options.request_options.cookies.as_ref().unwrap();
-            let host = "https://youtube.com".parse::<url::Url>().unwrap();
+            if let Some(cookie) = options.request_options.cookies.as_ref() {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::COOKIE,
+                    reqwest::header::HeaderValue::from_str(cookie)
+                        .map_err(|_x| VideoError::CookieError)?,
+                );
 
-            let jar = reqwest::cookie::Jar::default();
-            jar.add_cookie_str(cookie.as_str(), &host);
+                client = client.default_headers(headers)
+            }
 
-            client = client.cookie_provider(Arc::new(jar));
-        }
-
-        let client = client.build().map_err(VideoError::Reqwest)?;
+            client.build().map_err(VideoError::Reqwest)?
+        };
 
         let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
             .retry_bounds(
@@ -409,7 +414,11 @@ impl Video {
     ///
     ///     let video = Video::new(video_url).unwrap();
     ///
-    ///     let stream = video.stream().await.unwrap();
+    ///     let stream = video.stream_with_ffmpeg(Some(FFmpegArgs {
+    ///            format: Some("mp3".to_string()),
+    ///            audio_filter: Some("aresample=48000,asetrate=48000*0.8".to_string()),
+    ///            video_filter: Some("eq=brightness=150:saturation=2".to_string()),
+    ///        })).await.unwrap();
     ///
     ///     while let Some(chunk) = stream.chunk().await.unwrap() {
     ///           println!("{:#?}", chunk);
