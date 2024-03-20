@@ -69,12 +69,15 @@ rustls-tls = ["reqwest/rustls-tls"]
 
 [[example]]
 name = "multiple_downloads"
+path = "examples/multiple_downloads.rs"
 required-features = ["performance_analysis"]
 
 [[example]]
 name = "blocking"
+path = "examples/blocking.rs"
 required-features = ["blocking"]
 
 [[example]]
 name = "download_with_ffmpeg"
+path = "examples/download_with_ffmpeg.rs"
 required-features = ["ffmpeg"]
