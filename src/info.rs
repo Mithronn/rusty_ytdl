@@ -2,10 +2,6 @@ use std::{collections::HashMap, sync::Arc};
 
 use scraper::{Html, Selector};
 
-// Disabled due to not using DASHMPD
-//
-// use xml_oxide::{sax::parser::Parser, sax::Event};
-
 use crate::constants::{BASE_URL, FORMATS};
 use crate::info_extras::{get_media, get_related_videos};
 #[cfg(feature = "live")]
@@ -224,35 +220,7 @@ impl Video {
 
         let has_manifest = info.dash_manifest_url.is_some() || info.hls_manifest_url.is_some();
 
-        if has_manifest && info.dash_manifest_url.is_some() {
-            // only support HLS-Formats for livestreams for now so all non-HLS streams will be ignored
-            //
-            // let url = info.dash_manifest_url.as_ref().unwrap();
-            // let mut dash_manifest_formats = get_dash_manifest(url, &client).await;
-
-            // for format in dash_manifest_formats.iter_mut() {
-            //     let format_as_object = format.as_object_mut();
-            //     if format_as_object.is_some() {
-            //         let format_as_object = format_as_object.unwrap();
-
-            //         // Insert url
-            //         format_as_object.insert(
-            //             "url".to_string(),
-            //             serde_json::Value::String(url.to_string()),
-            //         );
-
-            //         // Add other metadatas to format map
-            //         add_format_meta(format_as_object);
-
-            //         let format: Result<VideoFormat, serde_json::Error> =
-            //             serde_json::from_value(format.clone());
-            //         if format.is_err() {
-            //             continue;
-            //         }
-            //         info.formats.insert(info.formats.len(), format.unwrap());
-            //     }
-            // }
-        }
+        // if has_manifest && info.dash_manifest_url.is_some() {}
 
         if has_manifest && info.hls_manifest_url.is_some() {
             let url = info.hls_manifest_url.as_ref().expect("IMPOSSIBLE");
@@ -545,134 +513,7 @@ impl Video {
     pub fn get_video_id(&self) -> String {
         self.video_id.clone()
     }
-
-    #[allow(dead_code)]
-    pub(crate) fn get_client(&self) -> &reqwest_middleware::ClientWithMiddleware {
-        &self.client
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn get_options(&self) -> VideoOptions {
-        self.options.clone()
-    }
 }
-
-// #[allow(dead_code)]
-// async fn get_dash_manifest(
-//     url: &str,
-//     client: &reqwest_middleware::ClientWithMiddleware,
-// ) -> Result<Vec<serde_json::Value>, VideoError> {
-//     let base_url = url::Url::parse(BASE_URL).expect("BASE_URL corrapt");
-//     let base_url_host = base_url.host_str().expect("BASE_URL host corrapt");
-
-//     let url = url::Url::parse(url)
-//         .and_then(|mut x| {
-//             let set_host_result = x.set_host(Some(base_url_host));
-//             if set_host_result.is_err() {
-//                 return Err(set_host_result.expect_err("How can be possible"));
-//             }
-//             Ok(x)
-//         })
-//         .map(|x| x.as_str().to_string())
-//         .unwrap_or("".to_string());
-
-//     let body = get_html(client, &url, None).await?;
-
-//     let mut parser = Parser::from_reader(body.as_bytes());
-
-//     let mut formats: Vec<serde_json::Value> = vec![];
-//     let mut adaptation_set: HashMap<String, String> = HashMap::default();
-
-//     loop {
-//         let res = parser.read_event();
-
-//         match res {
-//             Ok(event) => match event {
-//                 Event::EndDocument => {
-//                     break;
-//                 }
-//                 Event::StartElement(node) => {
-//                     if node.name.to_lowercase() == "ADAPTATIONSET".to_lowercase() {
-//                         adaptation_set = node
-//                             .attributes()
-//                             .map(|x| (x.name.to_lowercase(), x.value.to_lowercase()))
-//                             .collect();
-//                     } else if node.name.to_lowercase() == "REPRESENTATION".to_lowercase() {
-//                         let representation: HashMap<String, String> = node
-//                             .attributes()
-//                             .map(|x| (x.name.to_lowercase(), x.value.to_lowercase()))
-//                             .collect();
-//                         if representation.contains_key("id") {
-//                             let itag = representation.get("id").unwrap();
-//                             let itag = itag.parse::<i32>();
-//                             if let Ok(itag) = itag {
-//                                 let mut format = serde_json::json!({
-//                                     "itag": itag,
-//                                     "bitrate": representation.get("bandwith").and_then(|x| x.parse::<i32>().ok()).unwrap_or(0),
-//                                     "mimeType": format!(r#"{}; codecs="{}""#,adaptation_set.get("mimetype").map(|x| x.as_str()).unwrap_or(""),representation.get("codecs").map(|x| x.as_str()).unwrap_or(""))
-//                                 });
-//                                 let format_as_object_mut =
-//                                     format.as_object_mut().expect("IMPOSSIBLE");
-//                                 if representation.contains_key("height") {
-//                                     format_as_object_mut.insert(
-//                                         "width".to_string(),
-//                                         serde_json::Value::Number(
-//                                             representation
-//                                                 .get("width")
-//                                                 .and_then(|x| x.parse::<i32>().ok())
-//                                                 .unwrap_or(0)
-//                                                 .into(),
-//                                         ),
-//                                     );
-//                                     format_as_object_mut.insert(
-//                                         "height".to_string(),
-//                                         serde_json::Value::Number(
-//                                             representation
-//                                                 .get("height")
-//                                                 .and_then(|x| x.parse::<i32>().ok())
-//                                                 .unwrap_or(0)
-//                                                 .into(),
-//                                         ),
-//                                     );
-//                                     format_as_object_mut.insert(
-//                                         "fps".to_string(),
-//                                         serde_json::Value::Number(
-//                                             representation
-//                                                 .get("framerate")
-//                                                 .and_then(|x| x.parse::<i32>().ok())
-//                                                 .unwrap_or(0)
-//                                                 .into(),
-//                                         ),
-//                                     );
-//                                 } else {
-//                                     format_as_object_mut.insert(
-//                                         "audioSampleRate".to_string(),
-//                                         serde_json::Value::Number(
-//                                             representation
-//                                                 .get("audiosamplingrate")
-//                                                 .and_then(|x| x.parse::<i32>().ok())
-//                                                 .unwrap_or(0)
-//                                                 .into(),
-//                                         ),
-//                                     );
-//                                 }
-
-//                                 formats.insert(formats.len(), format);
-//                             }
-//                         }
-//                     }
-//                 }
-//                 _ => {}
-//             },
-//             Err(err) => {
-//                 println!("{}", err);
-//                 break;
-//             }
-//         }
-//     }
-
-//     Ok(formats)
-// }
 
 async fn get_m3u8(
     url: &str,

@@ -1,5 +1,4 @@
-use boa_engine::optimizer::OptimizerOptions;
-use boa_engine::{Context, JsValue, Source};
+use boa_engine::{optimizer::OptimizerOptions, Context, JsValue, Source};
 use bytes::Bytes;
 use once_cell::sync::Lazy;
 use rand::Rng;
@@ -48,47 +47,6 @@ pub async fn ffmpeg_cmd_run(args: &Vec<String>, data: Bytes) -> Result<Bytes, Vi
         .map_err(|x| VideoError::FFmpeg(x.to_string()))?;
 
     Ok(Bytes::from(output.stdout))
-}
-
-#[allow(dead_code)]
-pub fn get_cver(info: &serde_json::Value) -> &str {
-    info.get("responseContext")
-        .and_then(|x| x.get("serviceTrackingParams"))
-        .unwrap()
-        .as_array()
-        .and_then(|x| {
-            let index = x
-                .iter()
-                .position(|r| {
-                    r.as_object()
-                        .map(|c| c.get("service").unwrap().as_str().unwrap() == "CSI")
-                        .unwrap_or(false)
-                })
-                .unwrap();
-            x.get(index)
-                .unwrap()
-                .as_object()
-                .and_then(|x| {
-                    let second_array = x.get("params").unwrap().as_array().unwrap();
-                    let second_index = second_array
-                        .iter()
-                        .position(|r| {
-                            r.as_object()
-                                .map(|c| c.get("key").unwrap().as_str().unwrap() == "cver")
-                                .unwrap_or(false)
-                        })
-                        .unwrap();
-                    second_array
-                        .get(second_index)
-                        .unwrap()
-                        .as_object()
-                        .unwrap()
-                        .get("value")
-                })
-                .unwrap()
-                .as_str()
-        })
-        .unwrap()
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
@@ -492,10 +450,9 @@ pub fn set_download_url(
             _ => {
                 #[cfg(feature = "performance_analysis")]
                 let _guard = flame::start_guard("build engine");
-                let mut context = boa_engine::Context::default();
-                let decipher_script = context.eval(boa_engine::Source::from_bytes(
-                    decipher_script_string.1.as_str(),
-                ));
+                let mut context = Context::default();
+                let decipher_script =
+                    context.eval(Source::from_bytes(decipher_script_string.1.as_str()));
                 if decipher_script.is_err() {
                     if args.get("url").is_none() {
                         return url.to_string();
@@ -512,7 +469,7 @@ pub fn set_download_url(
         let result = {
             #[cfg(feature = "performance_analysis")]
             let _guard = flame::start_guard("execute engine");
-            context.eval(boa_engine::Source::from_bytes(&format!(
+            context.eval(Source::from_bytes(&format!(
                 r#"{func_name}("{args}")"#,
                 func_name = decipher_script_string.0.as_str(),
                 args = args.get("s").and_then(|x| x.as_str()).unwrap_or("")
@@ -631,14 +588,14 @@ pub fn set_download_url(
             #[cfg_attr(feature = "performance_analysis", flamer::flame)]
             // Caching this would be great (~2ms x 2 gain/req on Ryzen 9 5950XT) but is quite hard because of the !Send nature of boa
             fn create_transform_script(script: &str) -> Context<'_> {
-                let mut context = boa_engine::Context::default();
+                let mut context = Context::default();
                 context.eval(parse_source(script)).unwrap();
                 context
             }
 
             #[cfg_attr(feature = "performance_analysis", flamer::flame)]
             fn parse_source(script: &str) -> Source<&[u8]> {
-                boa_engine::Source::from_bytes(script)
+                Source::from_bytes(script)
             }
 
             #[cfg_attr(feature = "performance_analysis", flamer::flame)]
