@@ -513,6 +513,18 @@ impl Video {
     pub fn get_video_id(&self) -> String {
         self.video_id.clone()
     }
+
+    // Necessary to blocking api
+    #[allow(dead_code)]
+    pub(crate) fn get_client(&self) -> &reqwest_middleware::ClientWithMiddleware {
+        &self.client
+    }
+
+    // Necessary to blocking api
+    #[allow(dead_code)]
+    pub(crate) fn get_options(&self) -> VideoOptions {
+        self.options.clone()
+    }
 }
 
 async fn get_m3u8(

@@ -10,17 +10,16 @@ use std::sync::Mutex;
 use std::time::Instant;
 use tokio::sync::RwLock;
 use tokio::{io::AsyncWriteExt, process::Command};
-use unicode_segmentation::UnicodeSegmentation;
 use urlencoding::decode;
 
 use crate::constants::{
-    AGE_RESTRICTED_URLS, AUDIO_ENCODING_RANKS, BASE_URL, ESCAPING_SEQUENZES, IPV6_REGEX,
-    PARSE_INT_REGEX, VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
+    AGE_RESTRICTED_URLS, AUDIO_ENCODING_RANKS, BASE_URL, IPV6_REGEX, PARSE_INT_REGEX,
+    VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
 };
 use crate::info_extras::{get_author, get_chapters, get_dislikes, get_likes, get_storyboards};
 use crate::structs::{
-    Embed, EscapeSequence, StringUtils, Thumbnail, VideoDetails, VideoError, VideoFormat,
-    VideoOptions, VideoQuality, VideoSearchOptions,
+    Embed, StringUtils, Thumbnail, VideoDetails, VideoError, VideoFormat, VideoOptions,
+    VideoQuality, VideoSearchOptions,
 };
 
 #[cfg(feature = "ffmpeg")]

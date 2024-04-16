@@ -1,4 +1,3 @@
-use crate::structs::EscapeSequence;
 use once_cell::sync::Lazy;
 
 pub const BASE_URL: &str = "https://www.youtube.com/watch?v=";
@@ -40,43 +39,6 @@ pub(crate) static IPV6_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
 
 pub(crate) static PARSE_INT_REGEX: Lazy<regex::Regex> =
     Lazy::new(|| regex::Regex::new(r"(?m)^\s*((\-|\+)?[0-9]+)\s*").unwrap());
-
-pub(crate) static ESCAPING_SEQUENZES: Lazy<[EscapeSequence; 4]> = Lazy::new(|| {
-    [
-        EscapeSequence {
-            start: r#"""#.to_string(),
-            end: r#"""#.to_string(),
-            start_prefix: None,
-        },
-        EscapeSequence {
-            start: "'".to_string(),
-            end: "'".to_string(),
-            start_prefix: None,
-        },
-        EscapeSequence {
-            start: "`".to_string(),
-            end: "`".to_string(),
-            start_prefix: None,
-        },
-        EscapeSequence {
-            start: "/".to_string(),
-            end: "/".to_string(),
-            start_prefix: Some(regex::Regex::new(r"(?m)(^|[\[{:;,/])\s?$").expect("IMPOSSIBLE")),
-        },
-    ]
-});
-
-// node-ytdl-core cutAfterJS function
-pub static CUT_AFTER_JS: &str = r#"
-  const ESCAPING_SEQUENCES = [
-    { start: '"', end: '"' },
-    { start: "'", end: "'" },
-    { start: '`', end: '`' },
-    { start: '/', end: '/', startPrefix: /(^|[[{:;,/])\s?$/ },
-  ];
-
-  function cutAfterJS(t){let n,u;if("["===t[0]?(n="[",u="]"):"{"===t[0]&&(n="{",u="}"),!n)throw Error(`Need to begin with [ or {`);let e=null,r=!1,l=0,i;for(i=0;i<t.length;i++){if(r||null===e||t[i]!==e.end){if(!r&&null===e){for(let o of ESCAPING_SEQUENCES)if(t[i]===o.start&&(!o.startPrefix||t.substring(i-10,i).match(o.startPrefix))){e=o;break}if(null!==e)continue}}else{e=null;continue}if(r="\\"===t[i]&&!r,null===e&&(t[i]===n?l++:t[i]===u&&l--,0===l))return t.substring(0,i+1)}throw Error("No matching closing bracket found")};
-  "#;
 
 pub static FORMATS: Lazy<serde_json::Value> = Lazy::new(|| {
     serde_json::json!({

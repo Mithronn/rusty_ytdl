@@ -497,13 +497,6 @@ pub struct Embed {
     pub width: i32,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct EscapeSequence {
-    pub start: String,
-    pub end: String,
-    pub start_prefix: Option<regex::Regex>,
-}
-
 pub trait StringUtils {
     fn substring(&self, start: usize, end: usize) -> &str;
     fn substr(&self, start: usize, len: usize) -> &str;
