@@ -1,4 +1,5 @@
 use boa_engine::{optimizer::OptimizerOptions, Context, JsValue, Source};
+use boa_parser::source::UTF8Input;
 use bytes::Bytes;
 use once_cell::sync::Lazy;
 use rand::Rng;
@@ -586,14 +587,14 @@ pub fn set_download_url(
         } else {
             #[cfg_attr(feature = "performance_analysis", flamer::flame)]
             // Caching this would be great (~2ms x 2 gain/req on Ryzen 9 5950XT) but is quite hard because of the !Send nature of boa
-            fn create_transform_script(script: &str) -> Context<'_> {
+            fn create_transform_script(script: &str) -> Context {
                 let mut context = Context::default();
                 context.eval(parse_source(script)).unwrap();
                 context
             }
 
             #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-            fn parse_source(script: &str) -> Source<&[u8]> {
+            fn parse_source(script: &str) -> Source<UTF8Input<&[u8]>> {
                 Source::from_bytes(script)
             }
 
