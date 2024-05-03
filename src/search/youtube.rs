@@ -201,6 +201,15 @@ impl YouTube {
         Ok(res.first().cloned())
     }
 
+    /// Fetch search suggestion with specific `query`
+    /// # Example
+    /// ```ignore
+    /// let youtube = YouTube::new().unwrap();
+    /// 
+    /// let res = youtube.suggestion("i know ").await;
+    /// 
+    /// println!("{res:#?}");
+    /// ```
     pub async fn suggestion(
         &self,
         query: impl Into<String>,
