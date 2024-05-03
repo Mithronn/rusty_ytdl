@@ -201,6 +201,34 @@ impl YouTube {
         Ok(res.first().cloned())
     }
 
+    pub async fn suggestion(
+        &self,
+        query: impl Into<String>,
+    ) -> Result<Vec<String>, VideoError> {
+        let query: String = query.into();
+        let url = format!(
+            "https://suggestqueries-clients6.youtube.com/complete/search?client=android&q={query}",
+            query = encode(query.trim())
+        );
+
+        let body = get_html(&self.client, url, None).await?;
+
+        let serde_value = serde_json::from_str::<serde_json::Value>(&body).unwrap();
+
+        let suggestion = serde_value
+            .as_array()
+            .unwrap()
+            .get(1)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.to_string())
+            .collect();
+
+        return Ok(suggestion);
+    }
+
     async fn innertube_key(&self) -> String {
         {
             let innertube_cache = self.innertube_cache.read().unwrap();
