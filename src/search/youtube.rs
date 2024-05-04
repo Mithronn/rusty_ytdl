@@ -6,14 +6,14 @@ use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use urlencoding::encode;
 
+use super::LanguageTags;
+pub use crate::structs::RequestOptions;
 use crate::{
     constants::DEFAULT_HEADERS,
     structs::VideoError,
     utils::{get_html, get_random_v6_ip, time_to_ms},
     Thumbnail,
 };
-
-pub use crate::structs::RequestOptions;
 
 const DEFAULT_INNERTUBE_KEY: &str = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const DEFAULT_CLIENT_VERSOIN: &str = "2.20230331.00.00";
@@ -201,24 +201,33 @@ impl YouTube {
         Ok(res.first().cloned())
     }
 
-    /// Fetch search suggestion with specific `query`
+    /// Fetch search suggestion with specific `query` and `language`.
+    /// If language is None, then will use the default language for suggestions
     /// # Example
     /// ```ignore
     /// let youtube = YouTube::new().unwrap();
-    /// 
+    ///
     /// let res = youtube.suggestion("i know ").await;
-    /// 
+    ///
     /// println!("{res:#?}");
     /// ```
     pub async fn suggestion(
         &self,
         query: impl Into<String>,
+        language: Option<LanguageTags>,
     ) -> Result<Vec<String>, VideoError> {
         let query: String = query.into();
-        let url = format!(
-            "https://suggestqueries-clients6.youtube.com/complete/search?client=android&q={query}",
-            query = encode(query.trim())
-        );
+
+        let mut url = url::Url::parse_with_params(
+            "https://suggestqueries-clients6.youtube.com/complete/search",
+            &[("client", "android"), ("q", query.trim())],
+        )
+        .map_err(VideoError::URLParseError)?;
+
+        if let Some(language) = language {
+            url.query_pairs_mut()
+                .append_pair("hl", &language.to_string());
+        }
 
         let body = get_html(&self.client, url, None).await?;
 
@@ -226,14 +235,10 @@ impl YouTube {
 
         let suggestion = serde_value
             .as_array()
-            .unwrap()
-            .get(1)
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|x| x.to_string())
-            .collect();
+            .and_then(|x| x.get(1))
+            .and_then(|x| x.as_array())
+            .map(|x| x.iter().map(|x| x.to_string()).collect())
+            .unwrap_or_default();
 
         Ok(suggestion)
     }

@@ -80,3 +80,13 @@ required-features = ["blocking"]
 name = "download_with_ffmpeg"
 path = "examples/download_with_ffmpeg.rs"
 required-features = ["ffmpeg"]
+
+[[example]]
+name = "search"
+path = "examples/search.rs"
+required-features = ["search"]
+
+[[example]]
+name = "suggestion"
+path = "examples/suggestion.rs"
+required-features = ["search"]

@@ -1,6 +1,6 @@
 pub use crate::search::{
-    Channel, EmbedOptions, PlaylistSearchOptions, RequestOptions, SearchOptions, SearchResult,
-    SearchType, Video,
+    Channel, EmbedOptions, LanguageTags, PlaylistSearchOptions, RequestOptions, SearchOptions,
+    SearchResult, SearchType, Video,
 };
 use crate::search::{Playlist as AsyncPlaylist, YouTube as AsyncYouTube};
 use crate::{block_async, VideoError};
@@ -46,6 +46,24 @@ impl YouTube {
         search_options: Option<&SearchOptions>,
     ) -> Result<Option<SearchResult>, VideoError> {
         Ok(block_async!(self.0.search_one(query, search_options))?)
+    }
+
+    /// Fetch search suggestion with specific `query` and `language`.
+    /// If language is None, then will use the default language for suggestions
+    /// # Example
+    /// ```ignore
+    /// let youtube = YouTube::new().unwrap();
+    ///
+    /// let res = youtube.suggestion("i know ");
+    ///
+    /// println!("{res:#?}");
+    /// ```
+    pub fn suggestion(
+        &self,
+        query: impl Into<String>,
+        language: Option<LanguageTags>,
+    ) -> Result<Vec<String>, VideoError> {
+        Ok(block_async!(self.0.suggestion(query, language))?)
     }
 }
 

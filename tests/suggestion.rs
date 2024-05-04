@@ -4,7 +4,7 @@ async fn suggestion() {
 
     let youtube = YouTube::new().unwrap();
 
-    let res = youtube.suggestion("i know ").await;
+    let res = youtube.suggestion("i know ", None).await;
 
     println!("{res:#?}");
 }
