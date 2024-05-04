@@ -235,7 +235,7 @@ impl YouTube {
             .map(|x| x.to_string())
             .collect();
 
-        return Ok(suggestion);
+        Ok(suggestion)
     }
 
     async fn innertube_key(&self) -> String {
