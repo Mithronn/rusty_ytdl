@@ -27,11 +27,13 @@ pub struct NonLiveStream {
     dl_chunk_size: u64,
     start: RwLock<u64>,
     end: RwLock<u64>,
+    start_static: u64,
+    end_static: u64,
 
     client: reqwest_middleware::ClientWithMiddleware,
 
     #[cfg(feature = "ffmpeg")]
-    ffmpeg_args: Option<FFmpegArgs>,
+    ffmpeg_args: Vec<String>,
     #[cfg(feature = "ffmpeg")]
     ffmpeg_start_byte: RwLock<Bytes>,
     #[cfg(feature = "ffmpeg")]
@@ -60,20 +62,42 @@ impl NonLiveStream {
                 .build()
         };
 
-        Ok(Self {
-            client,
-            link: options.link,
-            content_length: options.content_length,
-            dl_chunk_size: options.dl_chunk_size,
-            start: RwLock::new(options.start),
-            end: RwLock::new(options.end),
-            #[cfg(feature = "ffmpeg")]
-            ffmpeg_args: options.ffmpeg_args,
-            #[cfg(feature = "ffmpeg")]
-            ffmpeg_end_byte: RwLock::new(0),
-            #[cfg(feature = "ffmpeg")]
-            ffmpeg_start_byte: RwLock::new(Bytes::new()),
-        })
+        #[cfg(feature = "ffmpeg")]
+        {
+            let ffmpeg_args = options
+                .ffmpeg_args
+                .clone()
+                .map(|x| x.build())
+                .unwrap_or_default();
+
+            Ok(Self {
+                client,
+                link: options.link,
+                content_length: options.content_length,
+                dl_chunk_size: options.dl_chunk_size,
+                start: RwLock::new(options.start),
+                end: RwLock::new(options.end),
+                start_static: options.start,
+                end_static: options.end,
+                ffmpeg_args: ffmpeg_args.clone(),
+                ffmpeg_end_byte: RwLock::new(0),
+                ffmpeg_start_byte: RwLock::new(Bytes::new()),
+            })
+        }
+
+        #[cfg(not(feature = "ffmpeg"))]
+        {
+            Ok(Self {
+                client,
+                link: options.link,
+                content_length: options.content_length,
+                dl_chunk_size: options.dl_chunk_size,
+                start: RwLock::new(options.start),
+                end: RwLock::new(options.end),
+                start_static: options.start,
+                end_static: options.end,
+            })
+        }
     }
 
     pub fn content_length(&self) -> u64 {
@@ -104,8 +128,21 @@ impl Stream for NonLiveStream {
     async fn chunk(&self) -> Result<Option<Bytes>, VideoError> {
         let end = self.end_index().await;
 
-        // Nothing else remain send None to finish
+        // Nothing else remain set controllers to the beginning state and send None to finish
         if end == 0 {
+            let mut end = self.end.write().await;
+            let mut start = self.start.write().await;
+            *end = self.end_static;
+            *start = self.start_static;
+
+            #[cfg(feature = "ffmpeg")]
+            {
+                let mut ffmpeg_end_byte = self.ffmpeg_end_byte.write().await;
+                let mut ffmpeg_start_byte = self.ffmpeg_start_byte.write().await;
+                *ffmpeg_end_byte = 0;
+                *ffmpeg_start_byte = Bytes::new();
+            }
+
             // Send None to close
             return Ok(None);
         }
@@ -147,17 +184,11 @@ impl Stream for NonLiveStream {
 
         #[cfg(feature = "ffmpeg")]
         {
-            let ffmpeg_args = self
-                .ffmpeg_args
-                .clone()
-                .map(|x| x.build())
-                .unwrap_or_default();
-
-            if !ffmpeg_args.is_empty() {
+            if !self.ffmpeg_args.is_empty() {
                 let ffmpeg_start_byte_index = self.ffmpeg_start_byte_index().await;
 
                 let cmd_output = ffmpeg_cmd_run(
-                    &ffmpeg_args,
+                    &self.ffmpeg_args,
                     Bytes::from(
                         [
                             BytesMut::from_iter(ffmpeg_start_byte_index.clone()),

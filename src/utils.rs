@@ -9,7 +9,6 @@ use std::process::Stdio;
 use std::sync::Mutex;
 use std::time::Instant;
 use tokio::sync::RwLock;
-use tokio::{io::AsyncWriteExt, process::Command};
 use urlencoding::decode;
 
 use crate::constants::{
@@ -24,7 +23,7 @@ use crate::structs::{
 
 #[cfg(feature = "ffmpeg")]
 pub async fn ffmpeg_cmd_run(args: &Vec<String>, data: Bytes) -> Result<Bytes, VideoError> {
-    use tokio::io::AsyncReadExt;
+    use tokio::{io::AsyncWriteExt, process::Command};
 
     let mut cmd = Command::new("ffmpeg");
     cmd.args(args)
@@ -44,6 +43,7 @@ pub async fn ffmpeg_cmd_run(args: &Vec<String>, data: Bytes) -> Result<Bytes, Vi
         .wait_with_output()
         .await
         .map_err(|x| VideoError::FFmpeg(x.to_string()))?;
+    println!("{}", output.stdout.len());
 
     Ok(Bytes::from(output.stdout))
 }

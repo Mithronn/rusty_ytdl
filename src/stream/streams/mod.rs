@@ -13,7 +13,7 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait Stream {
-    /// Stream a chunk of the [`u8`] bytes
+    /// Stream a chunk of the [`Bytes`]
     ///
     /// When the bytes has been exhausted, this will return `None`.
     async fn chunk(&self) -> Result<Option<Bytes>, VideoError>;
