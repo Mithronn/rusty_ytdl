@@ -1,13 +1,9 @@
-use boa_engine::{optimizer::OptimizerOptions, Context, JsValue, Source};
-use bytes::Bytes;
+use boa_engine::{Context, JsValue, Source};
 use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process::Stdio;
-use std::sync::Mutex;
-use std::time::Instant;
 use tokio::sync::RwLock;
 use urlencoding::decode;
 
@@ -20,33 +16,6 @@ use crate::structs::{
     Embed, StringUtils, Thumbnail, VideoDetails, VideoError, VideoFormat, VideoOptions,
     VideoQuality, VideoSearchOptions,
 };
-
-#[cfg(feature = "ffmpeg")]
-pub async fn ffmpeg_cmd_run(args: &Vec<String>, data: Bytes) -> Result<Bytes, VideoError> {
-    use tokio::{io::AsyncWriteExt, process::Command};
-
-    let mut cmd = Command::new("ffmpeg");
-    cmd.args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .kill_on_drop(true);
-
-    let mut process = cmd.spawn().map_err(|x| VideoError::FFmpeg(x.to_string()))?;
-    let mut stdin = process
-        .stdin
-        .take()
-        .ok_or(VideoError::FFmpeg("Failed to open stdin".to_string()))?;
-
-    tokio::spawn(async move { stdin.write_all(&data).await });
-
-    let output = process
-        .wait_with_output()
-        .await
-        .map_err(|x| VideoError::FFmpeg(x.to_string()))?;
-    println!("{}", output.stdout.len());
-
-    Ok(Bytes::from(output.stdout))
-}
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn get_html5player(body: &str) -> Option<String> {

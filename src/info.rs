@@ -1,5 +1,3 @@
-use std::{collections::HashMap, sync::Arc};
-
 use scraper::{Html, Selector};
 
 use crate::constants::{BASE_URL, FORMATS};
