@@ -3,7 +3,12 @@ use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{
+    borrow::Cow,
+    cmp::{min, Ordering},
+    collections::HashMap,
+    net::IpAddr,
+};
 use tokio::sync::RwLock;
 use urlencoding::decode;
 
@@ -237,17 +242,17 @@ pub fn choose_format<'a>(
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-pub fn sort_formats_by<F>(a: &VideoFormat, b: &VideoFormat, sort_by: Vec<F>) -> std::cmp::Ordering
+pub fn sort_formats_by<F>(a: &VideoFormat, b: &VideoFormat, sort_by: Vec<F>) -> Ordering
 where
     F: Fn(&VideoFormat) -> i32,
 {
-    let mut res = std::cmp::Ordering::Equal;
+    let mut res = Ordering::Equal;
 
     for func in sort_by {
         res = func(b).cmp(&func(a));
 
         // Is not equal return order
-        if res != std::cmp::Ordering::Equal {
+        if res != Ordering::Equal {
             break;
         }
     }
@@ -256,7 +261,7 @@ where
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
+pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> Ordering {
     sort_formats_by(
         a,
         b,
@@ -290,7 +295,7 @@ pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Orde
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-pub fn sort_formats_by_audio(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
+pub fn sort_formats_by_audio(a: &VideoFormat, b: &VideoFormat) -> Ordering {
     sort_formats_by(
         a,
         b,
@@ -312,7 +317,7 @@ pub fn sort_formats_by_audio(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Orde
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> std::cmp::Ordering {
+pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> Ordering {
     sort_formats_by(
         a,
         b,
@@ -532,7 +537,7 @@ pub fn set_download_url(
     ) -> String {
         #[cfg_attr(feature = "performance_analysis", flamer::flame)]
         fn get_components(url: &str) -> serde_json::value::Map<String, serde_json::Value> {
-            serde_qs::from_str(&decode(url).unwrap_or(std::borrow::Cow::Borrowed(url))).unwrap()
+            serde_qs::from_str(&decode(url).unwrap_or(Cow::Borrowed(url))).unwrap()
         }
 
         let components = get_components(url);
@@ -1321,7 +1326,7 @@ pub async fn get_html(
 /// let ipv6: std::net::IpAddr = get_random_v6_ip("2001:4::/48")?;
 /// ```
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, VideoError> {
+pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<IpAddr, VideoError> {
     let ipv6_format: String = ip.into();
 
     if !IPV6_REGEX.is_match(&ipv6_format) {
@@ -1358,7 +1363,7 @@ pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, Video
 
     for (idx, random_item) in random_addr.iter_mut().enumerate() {
         // Calculate the amount of static bits
-        let static_bits = std::cmp::min(base_10_mask, 16);
+        let static_bits = min(base_10_mask, 16);
         base_10_mask -= static_bits;
         // Adjust the bitmask with the static_bits
         let mask = (0xffffu32 - ((2_u32.pow((16 - static_bits).into())) - 1)) as u16;
@@ -1368,7 +1373,7 @@ pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<std::net::IpAddr, Video
         *random_item = merged;
     }
 
-    Ok(std::net::IpAddr::from(random_addr))
+    Ok(IpAddr::from(random_addr))
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
@@ -1387,11 +1392,11 @@ pub fn normalize_ip(ip: impl Into<String>) -> Vec<u16> {
 
     let mut full_ip: Vec<u16> = vec![0, 0, 0, 0, 0, 0, 0, 0];
 
-    for i in 0..std::cmp::min(part_start.len(), 8) {
+    for i in 0..min(part_start.len(), 8) {
         full_ip[i] = u16::from_str_radix(part_start[i], 16).unwrap_or(0)
     }
 
-    for i in 0..std::cmp::min(part_end.len(), 8) {
+    for i in 0..min(part_end.len(), 8) {
         full_ip[7 - i] = u16::from_str_radix(part_end[i], 16).unwrap_or(0)
     }
 

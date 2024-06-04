@@ -1,4 +1,13 @@
+use reqwest::{
+    header::{HeaderMap, HeaderValue, COOKIE},
+    Client,
+};
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use scraper::{Html, Selector};
+use serde_json::{from_str, from_value, json, Value};
+use std::{borrow::Borrow, path::Path, time::Duration};
+use url::Url;
 
 use crate::constants::{BASE_URL, FORMATS};
 use crate::info_extras::{get_media, get_related_videos};
@@ -17,6 +26,9 @@ use crate::utils::{
     is_private_video, is_rental, parse_video_formats, sort_formats,
 };
 
+// 10485760 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
+pub(crate) const DEFAULT_DL_CHUNK_SIZE: u64 = 10485760;
+
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
 #[display(fmt = "Video({video_id})")]
 #[derivative(Debug, PartialEq, Eq)]
@@ -24,7 +36,7 @@ pub struct Video {
     video_id: String,
     options: VideoOptions,
     #[derivative(PartialEq = "ignore")]
-    client: reqwest_middleware::ClientWithMiddleware,
+    client: ClientWithMiddleware,
 }
 
 impl Video {
@@ -33,20 +45,13 @@ impl Video {
     pub fn new(url_or_id: impl Into<String>) -> Result<Self, VideoError> {
         let video_id = get_video_id(&url_or_id.into()).ok_or(VideoError::VideoNotFound)?;
 
-        let client = reqwest::Client::builder()
-            .build()
-            .map_err(VideoError::Reqwest)?;
+        let client = Client::builder().build().map_err(VideoError::Reqwest)?;
 
-        let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
-            .retry_bounds(
-                std::time::Duration::from_millis(500),
-                std::time::Duration::from_millis(10000),
-            )
+        let retry_policy = ExponentialBackoff::builder()
+            .retry_bounds(Duration::from_millis(500), Duration::from_millis(10000))
             .build_with_max_retries(3);
-        let client = reqwest_middleware::ClientBuilder::new(client)
-            .with(reqwest_retry::RetryTransientMiddleware::new_with_policy(
-                retry_policy,
-            ))
+        let client = ClientBuilder::new(client)
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
             .build();
 
         Ok(Self {
@@ -66,7 +71,7 @@ impl Video {
         let client = if let Some(client) = options.request_options.client.as_ref() {
             client.clone()
         } else {
-            let mut client = reqwest::Client::builder();
+            let mut client = Client::builder();
 
             if let Some(proxy) = options.request_options.proxy.as_ref() {
                 client = client.proxy(proxy.clone());
@@ -78,11 +83,10 @@ impl Video {
             }
 
             if let Some(cookie) = options.request_options.cookies.as_ref() {
-                let mut headers = reqwest::header::HeaderMap::new();
+                let mut headers = HeaderMap::new();
                 headers.insert(
-                    reqwest::header::COOKIE,
-                    reqwest::header::HeaderValue::from_str(cookie)
-                        .map_err(|_x| VideoError::CookieError)?,
+                    COOKIE,
+                    HeaderValue::from_str(cookie).map_err(|_x| VideoError::CookieError)?,
                 );
 
                 client = client.default_headers(headers)
@@ -91,16 +95,11 @@ impl Video {
             client.build().map_err(VideoError::Reqwest)?
         };
 
-        let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
-            .retry_bounds(
-                std::time::Duration::from_millis(500),
-                std::time::Duration::from_millis(10000),
-            )
+        let retry_policy = ExponentialBackoff::builder()
+            .retry_bounds(Duration::from_millis(500), Duration::from_millis(10000))
             .build_with_max_retries(3);
-        let client = reqwest_middleware::ClientBuilder::new(client)
-            .with(reqwest_retry::RetryTransientMiddleware::new_with_policy(
-                retry_policy,
-            ))
+        let client = ClientBuilder::new(client)
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
             .build();
 
         Ok(Self {
@@ -116,13 +115,12 @@ impl Video {
     pub async fn get_basic_info(&self) -> Result<VideoInfo, VideoError> {
         let client = &self.client;
 
-        let url_parsed =
-            url::Url::parse_with_params(self.get_video_url().as_str(), &[("hl", "en")])
-                .map_err(VideoError::URLParseError)?;
+        let url_parsed = Url::parse_with_params(self.get_video_url().as_str(), &[("hl", "en")])
+            .map_err(VideoError::URLParseError)?;
 
         let response = get_html(client, url_parsed.as_str(), None).await?;
 
-        let (player_response, initial_response): (serde_json::Value, serde_json::Value) = {
+        let (player_response, initial_response): (Value, Value) = {
             let document = Html::parse_document(&response);
             let scripts_selector = Selector::parse("script").unwrap();
             let player_response_string = document
@@ -145,7 +143,7 @@ impl Video {
             // remove json object last element (;)
             initial_response_string.pop();
 
-            let player_response: serde_json::Value = serde_json::from_str(
+            let player_response: Value = from_str(
                 format!(
                     "{{{}}}}}}}",
                     between(player_response_string.as_str(), "{", "}}};")
@@ -153,8 +151,7 @@ impl Video {
                 .as_str(),
             )
             .unwrap();
-            let initial_response: serde_json::Value =
-                serde_json::from_str(&initial_response_string).unwrap();
+            let initial_response: Value = from_str(&initial_response_string).unwrap();
 
             (player_response, initial_response)
         };
@@ -226,51 +223,44 @@ impl Video {
 
             // Skip if error occured
             if let Ok(unformated_formats) = unformated_formats {
-                let default_formats = FORMATS.as_object().expect("IMPOSSIBLE");
                 // Push formated infos to formats
                 for (itag, url) in unformated_formats {
-                    let static_format = default_formats.get(&itag);
+                    let static_format = FORMATS.get(&itag as &str);
                     if static_format.is_none() {
                         continue;
                     }
                     let static_format = static_format.unwrap();
 
-                    let mut format = serde_json::json!({
+                    let mut format = json!({
                         "itag": itag.parse::<i32>().unwrap_or(0),
-                        "mimeType": static_format.get("mimeType").expect("IMPOSSIBLE"),
+                        "mimeType": static_format.mime_type,
                     });
 
                     let format_as_object_mut = format.as_object_mut().unwrap();
 
-                    if !static_format.get("qualityLabel").unwrap().is_null() {
+                    if let Some(quality_label) = &static_format.quality_label {
                         format_as_object_mut.insert(
                             "qualityLabel".to_string(),
-                            static_format.get("qualityLabel").unwrap().clone(),
+                            Value::String(quality_label.to_string()),
                         );
                     }
 
-                    if !static_format.get("bitrate").unwrap().is_null() {
-                        format_as_object_mut.insert(
-                            "bitrate".to_string(),
-                            static_format.get("bitrate").unwrap().clone(),
-                        );
+                    if let Some(bitrate) = static_format.bitrate {
+                        format_as_object_mut.insert("bitrate".to_string(), bitrate.into());
                     }
 
-                    if !static_format.get("audioBitrate").unwrap().is_null() {
-                        format_as_object_mut.insert(
-                            "audioBitrate".to_string(),
-                            static_format.get("audioBitrate").unwrap().clone(),
-                        );
+                    if let Some(audio_bitrate) = static_format.audio_bitrate {
+                        format_as_object_mut
+                            .insert("audioBitrate".to_string(), audio_bitrate.into());
                     }
 
                     // Insert stream url to format map
-                    format_as_object_mut.insert("url".to_string(), serde_json::Value::String(url));
+                    format_as_object_mut.insert("url".to_string(), Value::String(url));
 
                     // Add other metadatas to format map
                     add_format_meta(format_as_object_mut);
 
-                    let format: Result<VideoFormat, serde_json::Error> =
-                        serde_json::from_value(format);
+                    let format: Result<VideoFormat, serde_json::Error> = from_value(format);
                     if format.is_err() {
                         continue;
                     }
@@ -332,8 +322,7 @@ impl Video {
             .options
             .download_options
             .dl_chunk_size
-            // 1024 * 1024 * 10_u64 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
-            .unwrap_or(1024 * 1024 * 10_u64);
+            .unwrap_or(DEFAULT_DL_CHUNK_SIZE);
 
         let start = 0;
         let end = start + dl_chunk_size;
@@ -427,8 +416,7 @@ impl Video {
             .options
             .download_options
             .dl_chunk_size
-            // 1024 * 1024 * 10_u64 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
-            .unwrap_or(1024 * 1024 * 10_u64);
+            .unwrap_or(DEFAULT_DL_CHUNK_SIZE);
 
         let start = 0;
         let end = start + dl_chunk_size;
@@ -466,7 +454,7 @@ impl Video {
     }
 
     /// Download video directly to the file
-    pub async fn download<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), VideoError> {
+    pub async fn download<P: AsRef<Path>>(&self, path: P) -> Result<(), VideoError> {
         use std::{fs::File, io::Write};
 
         let stream = self.stream().await?;
@@ -483,7 +471,7 @@ impl Video {
 
     #[cfg(feature = "ffmpeg")]
     /// Download video with ffmpeg args directly to the file
-    pub async fn download_with_ffmpeg<P: AsRef<std::path::Path>>(
+    pub async fn download_with_ffmpeg<P: AsRef<Path>>(
         &self,
         path: P,
         ffmpeg_args: Option<FFmpegArgs>,
@@ -529,10 +517,10 @@ async fn get_m3u8(
     url: &str,
     client: &reqwest_middleware::ClientWithMiddleware,
 ) -> Result<Vec<(String, String)>, VideoError> {
-    let base_url = url::Url::parse(BASE_URL).expect("BASE_URL corrapt");
+    let base_url = Url::parse(BASE_URL).expect("BASE_URL corrapt");
     let base_url_host = base_url.host_str().expect("BASE_URL host corrapt");
 
-    let url = url::Url::parse(url)
+    let url = Url::parse(url)
         .and_then(|mut x| {
             let set_host_result = x.set_host(Some(base_url_host));
             if set_host_result.is_err() {

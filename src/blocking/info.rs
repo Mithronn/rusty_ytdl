@@ -1,7 +1,10 @@
+use std::path::Path;
+
 use crate::block_async;
 #[cfg(feature = "live")]
 use crate::blocking::stream::LiveStream;
 use crate::blocking::stream::NonLiveStream;
+use crate::info::DEFAULT_DL_CHUNK_SIZE;
 use crate::structs::{VideoError, VideoInfo, VideoOptions};
 use crate::utils::choose_format;
 use crate::Video as AsyncVideo;
@@ -91,8 +94,7 @@ impl Video {
         let dl_chunk_size = options
             .download_options
             .dl_chunk_size
-            // 1024 * 1024 * 10_u64 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
-            .unwrap_or(1024 * 1024 * 10_u64);
+            .unwrap_or(DEFAULT_DL_CHUNK_SIZE);
 
         let start = 0;
         let end = start + dl_chunk_size;
@@ -184,8 +186,7 @@ impl Video {
         let dl_chunk_size = options
             .download_options
             .dl_chunk_size
-            // 1024 * 1024 * 10_u64 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
-            .unwrap_or(1024 * 1024 * 10_u64);
+            .unwrap_or(DEFAULT_DL_CHUNK_SIZE);
 
         let start = 0;
         let end = start + dl_chunk_size;
@@ -223,13 +224,13 @@ impl Video {
     }
 
     /// Download video directly to the file
-    pub fn download<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), VideoError> {
+    pub fn download<P: AsRef<Path>>(&self, path: P) -> Result<(), VideoError> {
         Ok(block_async!(self.0.download(path))?)
     }
 
     #[cfg(feature = "ffmpeg")]
     /// Download video with ffmpeg args directly to the file
-    pub async fn download_with_ffmpeg<P: AsRef<std::path::Path>>(
+    pub async fn download_with_ffmpeg<P: AsRef<Path>>(
         &self,
         path: P,
         ffmpeg_args: Option<FFmpegArgs>,

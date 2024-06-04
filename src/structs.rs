@@ -4,6 +4,8 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 use std::{
+    cmp::Ordering,
+    fmt::{Debug, Formatter, Result as fmtResult},
     ops::{Bound, RangeBounds},
     str::FromStr,
     sync::Arc,
@@ -38,8 +40,8 @@ pub enum VideoSearchOptions {
     Custom(Arc<dyn Fn(&VideoFormat) -> bool + Sync + Send + 'static>),
 }
 
-impl std::fmt::Debug for VideoSearchOptions {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for VideoSearchOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmtResult {
         match self {
             VideoSearchOptions::VideoAudio => write!(f, "VideoAudio"),
             VideoSearchOptions::Video => write!(f, "Video"),
@@ -88,12 +90,12 @@ pub enum VideoQuality {
     #[display(fmt = "Custom")]
     Custom(
         VideoSearchOptions,
-        Arc<dyn Fn(&VideoFormat, &VideoFormat) -> std::cmp::Ordering + Sync + Send + 'static>,
+        Arc<dyn Fn(&VideoFormat, &VideoFormat) -> Ordering + Sync + Send + 'static>,
     ),
 }
 
-impl std::fmt::Debug for VideoQuality {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for VideoQuality {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmtResult {
         match self {
             VideoQuality::Highest => write!(f, "Highest"),
             VideoQuality::Lowest => write!(f, "Lowest"),
@@ -495,6 +497,17 @@ pub struct Embed {
     pub iframe_url: String,
     pub height: i32,
     pub width: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StaticFormat {
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    #[serde(rename = "qualityLabel")]
+    pub quality_label: Option<String>,
+    pub bitrate: Option<i32>,
+    #[serde(rename = "audioBitrate")]
+    pub audio_bitrate: Option<i32>,
 }
 
 pub trait StringUtils {

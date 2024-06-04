@@ -1,13 +1,14 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::{from_str, json, map::Map, Value};
 
 use crate::constants::BASE_URL;
 use crate::structs::{Author, Chapter, RelatedVideo, StoryBoard, Thumbnail};
 use crate::utils::{get_text, is_verified, parse_abbreviated_number, time_to_ms};
 
-pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<RelatedVideo>> {
+pub fn get_related_videos(info: &Value) -> Option<Vec<RelatedVideo>> {
     let mut rvs_params: Vec<&str> = vec![];
-    let mut secondary_results: Vec<serde_json::Value> = vec![];
+    let mut secondary_results: Vec<Value> = vec![];
 
     let mut rvs_params_closure = || -> Result<(), &str> {
         rvs_params = info
@@ -40,8 +41,8 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<RelatedVideo>>
         secondary_results = vec![];
     }
 
-    let contents_fallback: Vec<serde_json::Value> = vec![];
-    let fallback_value = serde_json::map::Map::new();
+    let contents_fallback: Vec<Value> = vec![];
+    let fallback_value = Map::new();
 
     let mut videos: Vec<RelatedVideo> = vec![];
     for result in secondary_results {
@@ -95,7 +96,7 @@ pub fn get_related_videos(info: &serde_json::Value) -> Option<Vec<RelatedVideo>>
 }
 
 pub fn parse_related_video(
-    details: &serde_json::map::Map<String, serde_json::Value>,
+    details: &Map<String, Value>,
     rvs_params: &[&str],
 ) -> Option<RelatedVideo> {
     #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -170,7 +171,7 @@ pub fn parse_related_video(
                 .map(|x| {
                     x.iter()
                         .filter(|x| {
-                            let json = serde_json::json!(x);
+                            let json = json!(x);
                             json["metadataBadgeRenderer"]["label"] == "LIVE NOW"
                         })
                         .count()
@@ -393,10 +394,10 @@ pub fn parse_related_video(
     Some(video)
 }
 
-pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
-    let empty_serde_array = serde_json::json!([]);
-    let empty_serde_object_array = vec![serde_json::json!({})];
-    let empty_serde_object = serde_json::json!({});
+pub fn get_media(info: &Value) -> Option<Value> {
+    let empty_serde_array = json!([]);
+    let empty_serde_object_array = vec![json!({})];
+    let empty_serde_object = json!({});
 
     let results = info
         .as_object()
@@ -438,10 +439,9 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
         .as_array()
         .unwrap_or(&empty_serde_object_array);
 
-        let mut return_object = serde_json::json!({});
+        let mut return_object = json!({});
 
         for row in metadata_rows {
-            // println!("{}", serde_json::to_string_pretty(row).unwrap());
             if row.get("metadataRowRenderer").is_some() {
                 let title = get_text(
                     row.get("metadataRowRenderer")
@@ -506,8 +506,7 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                     category_url = category_url,
                 );
 
-                return_object =
-                    serde_json::from_str(data.as_str()).unwrap_or(serde_json::json!({}));
+                return_object = from_str(data.as_str()).unwrap_or(json!({}));
             } else if row.get("richMetadataRowRenderer").is_some() {
                 let contents = row
                     .get("richMetadataRowRenderer")
@@ -610,27 +609,23 @@ pub fn get_media(info: &serde_json::Value) -> Option<serde_json::Value> {
                     category_url = category_url,
                 );
 
-                return_object =
-                    serde_json::from_str(data.as_str()).unwrap_or(serde_json::json!({}));
+                return_object = from_str(data.as_str()).unwrap_or(json!({}));
             }
         }
 
         Some(return_object)
     } else {
-        Some(serde_json::json!({}))
+        Some(json!({}))
     };
 
     json_result
 }
 
-pub fn get_author(
-    initial_response: &serde_json::Value,
-    player_response: &serde_json::Value,
-) -> Option<Author> {
-    let serde_empty_object = serde_json::json!({});
-    let empty_serde_object_array: Vec<serde_json::Value> = vec![];
+pub fn get_author(initial_response: &Value, player_response: &Value) -> Option<Author> {
+    let serde_empty_object = json!({});
+    let empty_serde_object_array: Vec<Value> = vec![];
 
-    let mut results: Vec<serde_json::Value> = vec![];
+    let mut results: Vec<Value> = vec![];
 
     let mut results_closure = || -> Result<(), &str> {
         results = initial_response
@@ -657,8 +652,7 @@ pub fn get_author(
                 .and_then(|x| x.get("videoSecondaryInfoRenderer"))
                 .and_then(|x| x.get("owner"))
                 .and_then(|x| x.get("videoOwnerRenderer"));
-            video_owner_renderer_index.unwrap_or(&serde_json::Value::Null)
-                != &serde_json::Value::Null
+            video_owner_renderer_index.unwrap_or(&Value::Null) != &Value::Null
         })
         .unwrap_or(usize::MAX);
 
@@ -718,7 +712,7 @@ pub fn get_author(
                 .to_string(),
         })
         .collect::<Vec<Thumbnail>>();
-    let zero_viewer = serde_json::json!("0");
+    let zero_viewer = json!("0");
     let subscriber_count = parse_abbreviated_number(
         get_text(
             video_ownder_renderer
@@ -738,9 +732,7 @@ pub fn get_author(
         .and_then(|x| x.get("playerMicroformatRenderer"))
         .unwrap_or(&serde_empty_object);
 
-    let id = if serde_json::json!(video_details).is_object()
-        && video_details.get("channelId").is_some()
-    {
+    let id = if json!(video_details).is_object() && video_details.get("channelId").is_some() {
         video_details
             .get("channelId")
             .and_then(|x| x.as_str())
@@ -841,9 +833,9 @@ pub fn get_author(
     })
 }
 
-pub fn get_likes(info: &serde_json::Value) -> i32 {
-    let serde_empty_object = serde_json::json!({});
-    let empty_serde_object_array = vec![serde_json::json!({})];
+pub fn get_likes(info: &Value) -> i32 {
+    let serde_empty_object = json!({});
+    let empty_serde_object_array = vec![json!({})];
 
     let contents = info
         .get("contents")
@@ -908,9 +900,9 @@ pub fn get_likes(info: &serde_json::Value) -> i32 {
     count_final.parse::<i32>().unwrap_or(0i32)
 }
 
-pub fn get_dislikes(info: &serde_json::Value) -> i32 {
-    let serde_empty_object = serde_json::json!({});
-    let empty_serde_object_array = vec![serde_json::json!({})];
+pub fn get_dislikes(info: &Value) -> i32 {
+    let serde_empty_object = json!({});
+    let empty_serde_object_array = vec![json!({})];
 
     let contents = info
         .get("contents")
@@ -975,7 +967,7 @@ pub fn get_dislikes(info: &serde_json::Value) -> i32 {
     count_final.parse::<i32>().unwrap_or(0i32)
 }
 
-pub fn get_storyboards(info: &serde_json::Value) -> Option<Vec<StoryBoard>> {
+pub fn get_storyboards(info: &Value) -> Option<Vec<StoryBoard>> {
     let parts = info
         .get("storyboards")
         .and_then(|x| x.get("playerStoryboardSpecRenderer"))
@@ -1034,9 +1026,9 @@ pub fn get_storyboards(info: &serde_json::Value) -> Option<Vec<StoryBoard>> {
     )
 }
 
-pub fn get_chapters(info: &serde_json::Value) -> Option<Vec<Chapter>> {
-    let serde_empty_object = serde_json::json!({});
-    let empty_serde_object_array = vec![serde_json::json!({})];
+pub fn get_chapters(info: &Value) -> Option<Vec<Chapter>> {
+    let serde_empty_object = json!({});
+    let empty_serde_object_array = vec![json!({})];
 
     let player_overlay_renderer = info
         .get("playerOverlays")
