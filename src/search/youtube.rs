@@ -668,10 +668,8 @@ impl Playlist {
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -682,10 +680,8 @@ impl Playlist {
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -719,10 +715,7 @@ impl Playlist {
                                     .get("width")
                                     .and_then(|x| {
                                         if x.is_string() {
-                                            x.as_str().map(|x| match x.parse::<i64>() {
-                                                Ok(a) => a,
-                                                Err(_err) => 0i64,
-                                            })
+                                            x.as_str().map(|x| x.parse::<i64>().unwrap_or_default())
                                         } else {
                                             x.as_i64()
                                         }
@@ -732,10 +725,7 @@ impl Playlist {
                                     .get("height")
                                     .and_then(|x| {
                                         if x.is_string() {
-                                            x.as_str().map(|x| match x.parse::<i64>() {
-                                                Ok(a) => a,
-                                                Err(_err) => 0i64,
-                                            })
+                                            x.as_str().map(|x| x.parse::<i64>().unwrap_or_default())
                                         } else {
                                             x.as_i64()
                                         }
@@ -824,6 +814,7 @@ impl Playlist {
     /// Get next chunk of videos from playlist and return fetched [`Video`] array.
     /// - If limit is [`None`] it will be [`u64::MAX`]
     /// - If [`Playlist`] is coming from [`SearchResult`] this function always return empty [`Vec<Video>`]!
+    ///
     /// to use this function with [`SearchResult`] follow example
     ///
     /// # Example
@@ -956,6 +947,7 @@ impl Playlist {
     /// Try to fetch all playlist videos and return [`Playlist`].
     /// - If limit is [`None`] it will be [`u64::MAX`]
     /// - If [`Playlist`] is coming from [`SearchResult`] this function always return [`Playlist`] with empty [`Vec<Video>`]!
+    ///
     /// to use this function with [`SearchResult`] follow example
     ///
     /// # Example
@@ -1124,10 +1116,7 @@ impl Playlist {
                                 .get("width")
                                 .and_then(|x| {
                                     if x.is_string() {
-                                        x.as_str().map(|x| match x.parse::<i64>() {
-                                            Ok(a) => a,
-                                            Err(_err) => 0i64,
-                                        })
+                                        x.as_str().map(|x| x.parse::<i64>().unwrap_or_default())
                                     } else {
                                         x.as_i64()
                                     }
@@ -1137,10 +1126,7 @@ impl Playlist {
                                 .get("height")
                                 .and_then(|x| {
                                     if x.is_string() {
-                                        x.as_str().map(|x| match x.parse::<i64>() {
-                                            Ok(a) => a,
-                                            Err(_err) => 0i64,
-                                        })
+                                        x.as_str().map(|x| x.parse::<i64>().unwrap_or_default())
                                     } else {
                                         x.as_i64()
                                     }
@@ -1619,10 +1605,8 @@ fn format_search_result(
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -1633,10 +1617,8 @@ fn format_search_result(
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -1703,9 +1685,8 @@ fn format_search_result(
                                             .get("width")
                                             .and_then(|x| {
                                                 if x.is_string() {
-                                                    x.as_str().map(|x| match x.parse::<i64>() {
-                                                        Ok(a) => a,
-                                                        Err(_err) => 0i64,
+                                                    x.as_str().map(|x| {
+                                                        x.parse::<i64>().unwrap_or_default()
                                                     })
                                                 } else {
                                                     x.as_i64()
@@ -1717,9 +1698,8 @@ fn format_search_result(
                                             .get("height")
                                             .and_then(|x| {
                                                 if x.is_string() {
-                                                    x.as_str().map(|x| match x.parse::<i64>() {
-                                                        Ok(a) => a,
-                                                        Err(_err) => 0i64,
+                                                    x.as_str().map(|x| {
+                                                        x.parse::<i64>().unwrap_or_default()
                                                     })
                                                 } else {
                                                     x.as_i64()
@@ -1748,9 +1728,8 @@ fn format_search_result(
                                             .get("width")
                                             .and_then(|x| {
                                                 if x.is_string() {
-                                                    x.as_str().map(|x| match x.parse::<i64>() {
-                                                        Ok(a) => a,
-                                                        Err(_err) => 0i64,
+                                                    x.as_str().map(|x| {
+                                                        x.parse::<i64>().unwrap_or_default()
                                                     })
                                                 } else {
                                                     x.as_i64()
@@ -1762,9 +1741,8 @@ fn format_search_result(
                                             .get("height")
                                             .and_then(|x| {
                                                 if x.is_string() {
-                                                    x.as_str().map(|x| match x.parse::<i64>() {
-                                                        Ok(a) => a,
-                                                        Err(_err) => 0i64,
+                                                    x.as_str().map(|x| {
+                                                        x.parse::<i64>().unwrap_or_default()
                                                     })
                                                 } else {
                                                     x.as_i64()
@@ -1873,10 +1851,8 @@ fn format_search_result(
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -1887,10 +1863,8 @@ fn format_search_result(
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -2032,10 +2006,8 @@ fn format_search_result(
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -2046,10 +2018,8 @@ fn format_search_result(
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -2077,10 +2047,8 @@ fn format_search_result(
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -2091,10 +2059,8 @@ fn format_search_result(
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }

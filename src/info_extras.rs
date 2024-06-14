@@ -284,10 +284,8 @@ pub fn parse_related_video(
                                         .get("width")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -298,10 +296,8 @@ pub fn parse_related_video(
                                         .get("height")
                                         .and_then(|x| {
                                             if x.is_string() {
-                                                x.as_str().map(|x| match x.parse::<i64>() {
-                                                    Ok(a) => a,
-                                                    Err(_err) => 0i64,
-                                                })
+                                                x.as_str()
+                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
                                             } else {
                                                 x.as_i64()
                                             }
@@ -354,10 +350,7 @@ pub fn parse_related_video(
                                 .get("width")
                                 .and_then(|x| {
                                     if x.is_string() {
-                                        x.as_str().map(|x| match x.parse::<i64>() {
-                                            Ok(a) => a,
-                                            Err(_err) => 0i64,
-                                        })
+                                        x.as_str().map(|x| x.parse::<i64>().unwrap_or_default())
                                     } else {
                                         x.as_i64()
                                     }
@@ -367,10 +360,7 @@ pub fn parse_related_video(
                                 .get("height")
                                 .and_then(|x| {
                                     if x.is_string() {
-                                        x.as_str().map(|x| match x.parse::<i64>() {
-                                            Ok(a) => a,
-                                            Err(_err) => 0i64,
-                                        })
+                                        x.as_str().map(|x| x.parse::<i64>().unwrap_or_default())
                                     } else {
                                         x.as_i64()
                                     }
@@ -683,10 +673,7 @@ pub fn get_author(initial_response: &Value, player_response: &PlayerResponse) ->
                 .get("width")
                 .and_then(|x| {
                     if x.is_string() {
-                        x.as_str().map(|x| match x.parse::<i64>() {
-                            Ok(a) => a,
-                            Err(_err) => 0i64,
-                        })
+                        x.as_str().map(|x| x.parse::<i64>().unwrap_or_default())
                     } else {
                         x.as_i64()
                     }
@@ -696,10 +683,7 @@ pub fn get_author(initial_response: &Value, player_response: &PlayerResponse) ->
                 .get("height")
                 .and_then(|x| {
                     if x.is_string() {
-                        x.as_str().map(|x| match x.parse::<i64>() {
-                            Ok(a) => a,
-                            Err(_err) => 0i64,
-                        })
+                        x.as_str().map(|x| x.parse::<i64>().unwrap_or_default())
                     } else {
                         x.as_i64()
                     }
