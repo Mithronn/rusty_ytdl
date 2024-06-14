@@ -5,25 +5,26 @@ use reqwest::{
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use scraper::{Html, Selector};
-use serde_json::{from_str, from_value, json, Value};
-use std::{borrow::Borrow, path::Path, time::Duration};
+use std::{path::Path, time::Duration};
 use url::Url;
 
-use crate::constants::{BASE_URL, FORMATS};
-use crate::info_extras::{get_media, get_related_videos};
 #[cfg(feature = "live")]
 use crate::stream::{LiveStream, LiveStreamOptions};
-use crate::stream::{NonLiveStream, NonLiveStreamOptions, Stream};
 
-use crate::structs::{VideoError, VideoFormat, VideoInfo, VideoOptions};
+use crate::{
+    constants::BASE_URL,
+    info_extras::{get_media, get_related_videos},
+    stream::{NonLiveStream, NonLiveStreamOptions, Stream},
+    structs::{PlayerResponse, VideoError, VideoInfo, VideoOptions},
+};
 
 #[cfg(feature = "ffmpeg")]
 use crate::structs::FFmpegArgs;
 
 use crate::utils::{
-    add_format_meta, between, choose_format, clean_video_details, get_functions, get_html,
-    get_html5player, get_random_v6_ip, get_video_id, is_not_yet_broadcasted, is_play_error,
-    is_private_video, is_rental, parse_video_formats, sort_formats,
+    between, choose_format, clean_video_details, get_functions, get_html, get_html5player,
+    get_random_v6_ip, get_video_id, is_not_yet_broadcasted, is_play_error, is_private_video,
+    is_rental, parse_live_video_formats, parse_video_formats, sort_formats,
 };
 
 // 10485760 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
@@ -120,7 +121,7 @@ impl Video {
 
         let response = get_html(client, url_parsed.as_str(), None).await?;
 
-        let (player_response, initial_response): (Value, Value) = {
+        let (player_response, initial_response): (PlayerResponse, serde_json::Value) = {
             let document = Html::parse_document(&response);
             let scripts_selector = Selector::parse("script").unwrap();
             let player_response_string = document
@@ -143,7 +144,7 @@ impl Video {
             // remove json object last element (;)
             initial_response_string.pop();
 
-            let player_response: Value = from_str(
+            let player_response = serde_json::from_str::<PlayerResponse>(
                 format!(
                     "{{{}}}}}}}",
                     between(player_response_string.as_str(), "{", "}}};")
@@ -151,7 +152,9 @@ impl Video {
                 .as_str(),
             )
             .unwrap();
-            let initial_response: Value = from_str(&initial_response_string).unwrap();
+
+            let initial_response =
+                serde_json::from_str::<serde_json::Value>(&initial_response_string).unwrap();
 
             (player_response, initial_response)
         };
@@ -164,7 +167,7 @@ impl Video {
             return Err(VideoError::VideoIsPrivate);
         }
 
-        if player_response.get("streamingData").is_none()
+        if player_response.streaming_data.is_none()
             || is_rental(&player_response)
             || is_not_yet_broadcasted(&player_response)
         {
@@ -179,16 +182,14 @@ impl Video {
         );
 
         let dash_manifest_url = player_response
-            .get("streamingData")
-            .and_then(|x| x.get("dashManifestUrl"))
-            .and_then(|x| x.as_str())
-            .map(|x| x.to_string());
+            .streaming_data
+            .as_ref()
+            .and_then(|x| x.dash_manifest_url.clone());
 
         let hls_manifest_url = player_response
-            .get("streamingData")
-            .and_then(|x| x.get("hlsManifestUrl"))
-            .and_then(|x| x.as_str())
-            .map(|x| x.to_string());
+            .streaming_data
+            .as_ref()
+            .and_then(|x| x.hls_manifest_url.clone());
 
         Ok(VideoInfo {
             dash_manifest_url,
@@ -224,48 +225,11 @@ impl Video {
             // Skip if error occured
             if let Ok(unformated_formats) = unformated_formats {
                 // Push formated infos to formats
-                for (itag, url) in unformated_formats {
-                    let static_format = FORMATS.get(&itag as &str);
-                    if static_format.is_none() {
-                        continue;
-                    }
-                    let static_format = static_format.unwrap();
-
-                    let mut format = json!({
-                        "itag": itag.parse::<i32>().unwrap_or(0),
-                        "mimeType": static_format.mime_type,
-                    });
-
-                    let format_as_object_mut = format.as_object_mut().unwrap();
-
-                    if let Some(quality_label) = &static_format.quality_label {
-                        format_as_object_mut.insert(
-                            "qualityLabel".to_string(),
-                            Value::String(quality_label.to_string()),
-                        );
-                    }
-
-                    if let Some(bitrate) = static_format.bitrate {
-                        format_as_object_mut.insert("bitrate".to_string(), bitrate.into());
-                    }
-
-                    if let Some(audio_bitrate) = static_format.audio_bitrate {
-                        format_as_object_mut
-                            .insert("audioBitrate".to_string(), audio_bitrate.into());
-                    }
-
-                    // Insert stream url to format map
-                    format_as_object_mut.insert("url".to_string(), Value::String(url));
-
-                    // Add other metadatas to format map
-                    add_format_meta(format_as_object_mut);
-
-                    let format: Result<VideoFormat, serde_json::Error> = from_value(format);
-                    if format.is_err() {
-                        continue;
-                    }
-                    info.formats.push(format.unwrap());
-                }
+                info.formats = [
+                    &info.formats[..],
+                    &parse_live_video_formats(unformated_formats)[..],
+                ]
+                .concat()
             }
         }
 

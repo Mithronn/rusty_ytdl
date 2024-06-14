@@ -66,6 +66,9 @@ impl PartialEq for VideoSearchOptions {
     }
 }
 
+type CustomVideoQualityComparator =
+    Arc<dyn Fn(&VideoFormat, &VideoFormat) -> Ordering + Sync + Send + 'static>;
+
 #[derive(Clone, derive_more::Display)]
 pub enum VideoQuality {
     /// Highest Video & Audio
@@ -88,10 +91,7 @@ pub enum VideoQuality {
     LowestVideo,
     /// Custom ranking function and filter
     #[display(fmt = "Custom")]
-    Custom(
-        VideoSearchOptions,
-        Arc<dyn Fn(&VideoFormat, &VideoFormat) -> Ordering + Sync + Send + 'static>,
-    ),
+    Custom(VideoSearchOptions, CustomVideoQualityComparator),
 }
 
 impl Debug for VideoQuality {
@@ -351,9 +351,50 @@ pub struct VideoFormat {
     pub is_dash_mpd: bool,
 }
 
+impl From<StreamingDataFormat> for VideoFormat {
+    fn from(value: StreamingDataFormat) -> Self {
+        Self {
+            itag: value.itag.unwrap_or_default(),
+            mime_type: value.mime_type.clone().unwrap(),
+            bitrate: value.bitrate.unwrap_or_default(),
+            width: value.width,
+            height: value.height,
+            init_range: value.init_range.clone(),
+            index_range: value.index_range.clone(),
+            last_modified: value.last_modified.clone(),
+            content_length: value.content_length.clone(),
+            quality: value.quality.clone(),
+            fps: value.fps,
+            quality_label: value.quality_label.clone(),
+            projection_type: value.projection_type.clone(),
+            average_bitrate: value.average_bitrate,
+            high_replication: value.high_replication,
+            audio_quality: value.audio_quality.clone(),
+            color_info: value.color_info.as_ref().map(|x| ColorInfo {
+                primaries: x.primaries.clone().unwrap_or_default(),
+                transfer_characteristics: x.transfer_characteristics.clone().unwrap_or_default(),
+                matrix_coefficients: x.matrix_coefficients.clone().unwrap_or_default(),
+            }),
+            approx_duration_ms: value.approx_duration_ms.clone(),
+            audio_sample_rate: value.audio_sample_rate.clone(),
+            audio_channels: value.audio_channels,
+            audio_bitrate: value.audio_bitrate,
+            loudness_db: value.loudness_db,
+            url: value.url.clone().unwrap_or_default(),
+            has_video: false,
+            has_audio: false,
+            is_live: false,
+            is_hls: false,
+            is_dash_mpd: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RangeObject {
+    #[serde(rename = "start")]
     pub start: Option<String>,
+    #[serde(rename = "end")]
     pub end: Option<String>,
 }
 
@@ -369,8 +410,8 @@ pub struct ColorInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VideoDetails {
     pub author: Option<Author>,
-    pub likes: i32,
-    pub dislikes: i32,
+    pub likes: u64,
+    pub dislikes: u64,
     #[serde(rename = "ageRestricted")]
     pub age_restricted: bool,
     #[serde(rename = "videoUrl")]
@@ -502,12 +543,62 @@ pub struct Embed {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StaticFormat {
     #[serde(rename = "mimeType")]
+    pub mime_type: MimeType,
+    #[serde(rename = "qualityLabel")]
+    pub quality_label: Option<String>,
+    pub bitrate: Option<u64>,
+    #[serde(rename = "audioBitrate")]
+    pub audio_bitrate: Option<u64>,
+}
+
+impl From<StaticFormatRaw> for StaticFormat {
+    fn from(value: StaticFormatRaw) -> Self {
+        let mime: Mime = Mime::from_str(&value.mime_type).expect("IMPOSSIBLE");
+
+        let codecs: Vec<String> = mime
+            .get_param("codecs")
+            .map(|x| x.as_str().split(", ").map(|x| x.to_string()).collect())
+            .unwrap_or_default();
+
+        let container: String = mime.subtype().to_string();
+
+        let video_codec = if mime.type_() == mime::VIDEO {
+            codecs.first().cloned()
+        } else {
+            None
+        };
+
+        let audio_codec = if mime.type_() == mime::AUDIO {
+            codecs.first().cloned()
+        } else {
+            codecs.get(1).cloned()
+        };
+
+        Self {
+            mime_type: MimeType {
+                mime,
+                container,
+                codecs,
+                video_codec,
+                audio_codec,
+            },
+            quality_label: value.quality_label,
+            bitrate: value.bitrate,
+            audio_bitrate: value.audio_bitrate,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+
+pub struct StaticFormatRaw {
+    #[serde(rename = "mimeType")]
     pub mime_type: String,
     #[serde(rename = "qualityLabel")]
     pub quality_label: Option<String>,
-    pub bitrate: Option<i32>,
+    pub bitrate: Option<u64>,
     #[serde(rename = "audioBitrate")]
-    pub audio_bitrate: Option<i32>,
+    pub audio_bitrate: Option<u64>,
 }
 
 pub trait StringUtils {
@@ -733,4 +824,216 @@ impl FFmpegArgs {
 
         args
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayerResponse {
+    #[serde(rename = "streamingData")]
+    pub streaming_data: Option<StreamingData>,
+    #[serde(rename = "playabilityStatus")]
+    pub playability_status: Option<PlayabilityStatus>,
+    #[serde(rename = "microformat")]
+    pub micro_format: Option<MicroFormat>,
+    #[serde(rename = "videoDetails")]
+    pub video_details: Option<PlayerResponseVideoDetails>,
+    #[serde(rename = "storyboards")]
+    pub storyboards: Option<PlayerResponseStoryboards>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayerResponseStoryboards {
+    #[serde(rename = "playerStoryboardSpecRenderer")]
+    pub player_storyboard_spec_renderer: Option<PlayerResponseStoryboardsSpecRenderer>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayerResponseStoryboardsSpecRenderer {
+    #[serde(rename = "spec")]
+    pub spec: Option<String>,
+    #[serde(rename = "recommendedLevel")]
+    pub recommended_level: Option<i32>,
+    #[serde(rename = "highResolutionRecommendedLevel")]
+    pub high_resolution_recommended_level: Option<i32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MicroFormat {
+    #[serde(rename = "playerMicroformatRenderer")]
+    pub player_micro_format_renderer: Option<PlayerMicroFormatRenderer>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayerMicroFormatRenderer {
+    pub thumbnail: Option<PlayerMicroFormatRendererThumbnail>,
+    pub embed: Option<PlayerMicroFormatRendererEmbed>,
+    pub title: Option<PlayerMicroFormatRendererTitle>,
+    pub description: Option<PlayerMicroFormatRendererTitle>,
+    #[serde(rename = "lengthSeconds")]
+    pub length_seconds: Option<String>,
+    #[serde(rename = "ownerProfileUrl")]
+    pub owner_profile_url: Option<String>,
+    #[serde(rename = "externalChannelId")]
+    pub external_channel_id: Option<String>,
+    #[serde(rename = "isFamilySafe")]
+    pub is_family_safe: Option<bool>,
+    #[serde(rename = "availableCountries")]
+    pub available_countries: Option<Vec<String>>,
+    #[serde(rename = "isUnlisted")]
+    pub is_unlisted: Option<bool>,
+    #[serde(rename = "hasYpcMetadata")]
+    pub has_ypc_metadata: Option<bool>,
+    #[serde(rename = "viewCount")]
+    pub view_count: Option<String>,
+    #[serde(rename = "category")]
+    pub category: Option<String>,
+    #[serde(rename = "publishDate")]
+    pub publish_date: Option<String>,
+    #[serde(rename = "ownerChannelName")]
+    pub owner_channel_name: Option<String>,
+    #[serde(rename = "uploadDate")]
+    pub upload_date: Option<String>,
+    #[serde(rename = "isShortsEligible")]
+    pub is_shorts_eligible: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayerMicroFormatRendererTitle {
+    #[serde(rename = "simpleText")]
+    pub simple_text: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayerMicroFormatRendererEmbed {
+    #[serde(rename = "flashSecureUrl")]
+    pub flash_secure_url: Option<String>,
+    #[serde(rename = "flashUrl")]
+    pub flash_url: Option<String>,
+    #[serde(rename = "iframeUrl")]
+    pub iframe_url: Option<String>,
+    pub height: Option<i32>,
+    pub width: Option<i32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayerMicroFormatRendererThumbnail {
+    pub thumbnails: Option<Vec<Thumbnail>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayerResponseVideoDetails {
+    #[serde(rename = "videoId")]
+    pub video_id: Option<String>,
+    #[serde(rename = "title")]
+    pub title: Option<String>,
+    #[serde(rename = "lengthSeconds")]
+    pub length_seconds: Option<String>,
+    #[serde(rename = "keywords")]
+    pub keywords: Option<Vec<String>>,
+    #[serde(rename = "channelId")]
+    pub channel_id: Option<String>,
+    #[serde(rename = "isOwnerViewing")]
+    pub is_owner_viewing: Option<bool>,
+    #[serde(rename = "shortDescription")]
+    pub short_description: Option<String>,
+    #[serde(rename = "isCrawlable")]
+    pub is_crawlable: Option<bool>,
+    pub thumbnail: Option<PlayerMicroFormatRendererThumbnail>,
+    #[serde(rename = "allowRatings")]
+    pub allow_ratings: Option<bool>,
+    #[serde(rename = "viewCount")]
+    pub view_count: Option<String>,
+    #[serde(rename = "author")]
+    pub author: Option<String>,
+    #[serde(rename = "isPrivate")]
+    pub is_private: Option<bool>,
+    #[serde(rename = "isUnpluggedCorpus")]
+    pub is_unplugged_corpus: Option<bool>,
+    #[serde(rename = "isLiveContent")]
+    pub is_live_content: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StreamingData {
+    #[serde(rename = "dashManifestUrl")]
+    pub dash_manifest_url: Option<String>,
+    #[serde(rename = "hlsManifestUrl")]
+    pub hls_manifest_url: Option<String>,
+    #[serde(rename = "formats")]
+    pub formats: Option<Vec<StreamingDataFormat>>,
+    #[serde(rename = "adaptiveFormats")]
+    pub adaptive_formats: Option<Vec<StreamingDataFormat>>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct StreamingDataFormat {
+    /// Video format itag number
+    pub itag: Option<u64>,
+    /// Video format mime type
+    #[serde(rename = "mimeType")]
+    pub mime_type: Option<MimeType>,
+    pub bitrate: Option<u64>,
+    /// Video format width
+    pub width: Option<u64>, // VIDEO & DASH MPD ONLY
+    /// Video format height
+    pub height: Option<u64>, // VIDEO & DASH MPD ONLY
+    #[serde(rename = "initRange")]
+    pub init_range: Option<RangeObject>,
+    #[serde(rename = "indexRange")]
+    pub index_range: Option<RangeObject>,
+    #[serde(rename = "lastModified")]
+    pub last_modified: Option<String>,
+    #[serde(rename = "contentLength")]
+    pub content_length: Option<String>,
+    pub quality: Option<String>,
+    pub fps: Option<u64>, // VIDEO & DASH MPD ONLY
+    #[serde(rename = "qualityLabel")]
+    pub quality_label: Option<String>,
+    #[serde(rename = "projectionType")]
+    pub projection_type: Option<String>,
+    #[serde(rename = "averageBitrate")]
+    pub average_bitrate: Option<u64>,
+    #[serde(rename = "highReplication")]
+    pub high_replication: Option<bool>, // AUDIO ONLY
+    #[serde(rename = "audioQuality")]
+    pub audio_quality: Option<String>, // AUDIO ONLY
+    #[serde(rename = "colorInfo")]
+    pub color_info: Option<StreamingDataFormatColorInfo>, // VIDEO ONLY
+    #[serde(rename = "approxDurationMs")]
+    pub approx_duration_ms: Option<String>,
+    #[serde(rename = "audioSampleRate")]
+    pub audio_sample_rate: Option<String>, // AUDIO & DASH MPD ONLY
+    #[serde(rename = "audioChannels")]
+    pub audio_channels: Option<u8>, // AUDIO ONLY
+    #[serde(rename = "audioBitrate")]
+    pub audio_bitrate: Option<u64>, // LIVE HLS VIDEO ONLY
+    #[serde(rename = "loudnessDb")]
+    pub loudness_db: Option<f64>, // AUDIO ONLY
+    /// Video format URL
+    pub url: Option<String>,
+    #[serde(rename = "signatureCipher")]
+    pub signature_cipher: Option<String>,
+    #[serde(rename = "cipher")]
+    pub cipher: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StreamingDataFormatColorInfo {
+    pub primaries: Option<String>,
+    #[serde(rename = "transferCharacteristics")]
+    pub transfer_characteristics: Option<String>,
+    #[serde(rename = "matrixCoefficients")]
+    pub matrix_coefficients: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlayabilityStatus {
+    pub status: Option<String>,
+    #[serde(rename = "errorScreen")]
+    pub error_screen: Option<ErrorScreen>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ErrorScreen {
+    #[serde(rename = "playerLegacyDesktopYpcOfferRenderer")]
+    pub player_legacy_desktop_ypc_offer_renderer: Option<String>,
 }

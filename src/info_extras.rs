@@ -2,9 +2,11 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, json, map::Map, Value};
 
-use crate::constants::BASE_URL;
-use crate::structs::{Author, Chapter, RelatedVideo, StoryBoard, Thumbnail};
-use crate::utils::{get_text, is_verified, parse_abbreviated_number, time_to_ms};
+use crate::{
+    constants::BASE_URL,
+    structs::{Author, Chapter, PlayerResponse, RelatedVideo, StoryBoard, Thumbnail},
+    utils::{get_text, is_verified, parse_abbreviated_number, time_to_ms},
+};
 
 pub fn get_related_videos(info: &Value) -> Option<Vec<RelatedVideo>> {
     let mut rvs_params: Vec<&str> = vec![];
@@ -120,8 +122,6 @@ pub fn parse_related_video(
         "0".to_string()
     };
 
-    // This regex is not useful
-    // let regex = Regex::new(r"^\d").unwrap();
     let first = |string: &str| {
         string
             .chars()
@@ -621,7 +621,7 @@ pub fn get_media(info: &Value) -> Option<Value> {
     json_result
 }
 
-pub fn get_author(initial_response: &Value, player_response: &Value) -> Option<Author> {
+pub fn get_author(initial_response: &Value, player_response: &PlayerResponse) -> Option<Author> {
     let serde_empty_object = json!({});
     let empty_serde_object_array: Vec<Value> = vec![];
 
@@ -728,44 +728,25 @@ pub fn get_author(initial_response: &Value, player_response: &Value) -> Option<A
             .unwrap_or(&serde_empty_object),
     );
     let video_details = player_response
-        .get("microformat")
-        .and_then(|x| x.get("playerMicroformatRenderer"))
-        .unwrap_or(&serde_empty_object);
+        .micro_format
+        .as_ref()
+        .and_then(|x| x.player_micro_format_renderer.clone());
 
-    let id = if json!(video_details).is_object() && video_details.get("channelId").is_some() {
-        video_details
-            .get("channelId")
-            .and_then(|x| x.as_str())
-            .unwrap_or({
-                if !channel_id.is_empty() {
-                    channel_id
-                } else {
-                    player_response
-                        .get("videoDetails")
-                        .and_then(|x| x.get("channelId"))
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                }
-            })
-    } else if !channel_id.is_empty() {
-        channel_id
+    let id = if !channel_id.is_empty() {
+        channel_id.to_string()
     } else {
         player_response
-            .get("videoDetails")
-            .and_then(|x| x.get("channelId"))
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
+            .video_details
+            .as_ref()
+            .and_then(|x| x.channel_id.clone())
+            .unwrap_or("".to_string())
     };
 
-    let user = if video_details
-        .as_object()
-        .map(|x| !x.is_empty())
-        .unwrap_or(false)
+    let user = if let Some(owner_profile_url) = video_details
+        .as_ref()
+        .and_then(|x| x.owner_profile_url.clone())
     {
-        video_details
-            .get("ownerProfileUrl")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
+        owner_profile_url
             .trim()
             .split('/')
             .collect::<Vec<&str>>()
@@ -777,43 +758,25 @@ pub fn get_author(initial_response: &Value, player_response: &Value) -> Option<A
     };
 
     Some(Author {
-        id: id.to_string(),
-        name: if video_details
-            .as_object()
-            .map(|x| !x.is_empty())
-            .unwrap_or(false)
+        id: id.clone(),
+        name: if let Some(owner_channel_name) = video_details
+            .as_ref()
+            .and_then(|x| x.owner_channel_name.clone())
         {
-            video_details
-                .get("ownerChannelName")
-                .and_then(|x| x.as_str())
-                .unwrap_or({
-                    player_response
-                        .get("videoDetails")
-                        .and_then(|x| x.get("author"))
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                })
-                .to_string()
+            owner_channel_name
         } else {
             player_response
-                .get("videoDetails")
-                .and_then(|x| x.get("author"))
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string()
+                .video_details
+                .as_ref()
+                .and_then(|x| x.author.clone())
+                .unwrap_or("".to_string())
         },
         user: user.clone(),
         channel_url: format!("https://www.youtube.com/channel/{id}", id = id),
-        external_channel_url: if video_details
-            .as_object()
-            .map(|x| !x.is_empty())
-            .unwrap_or(false)
+        external_channel_url: if let Some(external_channel_id) = video_details
+            .as_ref()
+            .and_then(|x| x.external_channel_id.clone())
         {
-            let external_channel_id = video_details
-                .get("externalChannelId")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .trim();
             let mut return_string = String::from("");
             if !external_channel_id.is_empty() {
                 return_string = format!("https://www.youtube.com/channel/{}", external_channel_id);
@@ -833,7 +796,7 @@ pub fn get_author(initial_response: &Value, player_response: &Value) -> Option<A
     })
 }
 
-pub fn get_likes(info: &Value) -> i32 {
+pub fn get_likes(info: &Value) -> u64 {
     let serde_empty_object = json!({});
     let empty_serde_object_array = vec![json!({})];
 
@@ -870,37 +833,27 @@ pub fn get_likes(info: &Value) -> i32 {
 
     let like_index = buttons
         .iter()
-        .position(|x| {
-            let icon_type = x
-                .get("toggleButtonRenderer")
-                .and_then(|c| c.get("defaultIcon"))
-                .and_then(|c| c.get("iconType"))
-                .and_then(|c| c.as_str())
-                .unwrap_or("");
-
-            icon_type == "LIKE"
-        })
+        .position(|x| x.get("segmentedLikeDislikeButtonViewModel").is_some())
         .unwrap_or(usize::MAX);
 
     let like = buttons.get(like_index).unwrap_or(&serde_empty_object);
 
     let count = like
-        .get("toggleButtonRenderer")
-        .and_then(|x| x.get("defaultText"))
-        .and_then(|x| x.get("accessibility"))
-        .and_then(|x| x.get("accessibilityData"))
-        .and_then(|x| x.get("label"))
+        .get("segmentedLikeDislikeButtonViewModel")
+        .and_then(|x| x.get("likeButtonViewModel"))
+        .and_then(|x| x.get("likeButtonViewModel"))
+        .and_then(|x| x.get("toggleButtonViewModel"))
+        .and_then(|x| x.get("toggleButtonViewModel"))
+        .and_then(|x| x.get("defaultButtonViewModel"))
+        .and_then(|x| x.get("buttonViewModel"))
+        .and_then(|x| x.get("title"))
         .and_then(|x| x.as_str())
         .unwrap_or("0");
 
-    let count_regex = regex::Regex::new(r"\D+").unwrap();
-
-    let count_final = count_regex.replace_all(count, "");
-
-    count_final.parse::<i32>().unwrap_or(0i32)
+    parse_abbreviated_number(count) as u64
 }
 
-pub fn get_dislikes(info: &Value) -> i32 {
+pub fn get_dislikes(info: &Value) -> u64 {
     let serde_empty_object = json!({});
     let empty_serde_object_array = vec![json!({})];
 
@@ -935,95 +888,107 @@ pub fn get_dislikes(info: &Value) -> i32 {
         .and_then(|x| x.as_array())
         .unwrap_or(&empty_serde_object_array);
 
-    let like_index = buttons
+    let dislike_index = buttons
         .iter()
-        .position(|x| {
-            let icon_type = x
-                .get("toggleButtonRenderer")
-                .and_then(|c| c.get("defaultIcon"))
-                .and_then(|c| c.get("iconType"))
-                .and_then(|c| c.as_str())
-                .unwrap_or("");
-
-            icon_type == "DISLIKE"
-        })
+        .position(|x| x.get("segmentedLikeDislikeButtonViewModel").is_some())
         .unwrap_or(usize::MAX);
 
-    let like = buttons.get(like_index).unwrap_or(&serde_empty_object);
+    let like = buttons.get(dislike_index).unwrap_or(&serde_empty_object);
 
     let count = like
-        .get("toggleButtonRenderer")
-        .and_then(|x| x.get("defaultText"))
-        .and_then(|x| x.get("accessibility"))
-        .and_then(|x| x.get("accessibilityData"))
-        .and_then(|x| x.get("label"))
+        .get("segmentedLikeDislikeButtonViewModel")
+        .and_then(|x| x.get("dislikeButtonViewModel"))
+        .and_then(|x| x.get("dislikeButtonViewModel"))
+        .and_then(|x| x.get("toggleButtonViewModel"))
+        .and_then(|x| x.get("toggleButtonViewModel"))
+        .and_then(|x| x.get("defaultButtonViewModel"))
+        .and_then(|x| x.get("buttonViewModel"))
+        .and_then(|x| x.get("title"))
         .and_then(|x| x.as_str())
         .unwrap_or("0");
 
-    let count_regex = regex::Regex::new(r"\D+").unwrap();
-
-    let count_final = count_regex.replace_all(count, "");
-
-    count_final.parse::<i32>().unwrap_or(0i32)
+    parse_abbreviated_number(count) as u64
 }
 
-pub fn get_storyboards(info: &Value) -> Option<Vec<StoryBoard>> {
+pub fn get_storyboards(info: &PlayerResponse) -> Option<Vec<StoryBoard>> {
     let parts = info
-        .get("storyboards")
-        .and_then(|x| x.get("playerStoryboardSpecRenderer"))
-        .and_then(|x| x.get("spec"))
-        .and_then(|x| x.as_str());
+        .storyboards
+        .as_ref()
+        .and_then(|x| x.player_storyboard_spec_renderer.as_ref())
+        .and_then(|x| x.spec.clone());
 
-    if parts.is_none() {
-        return Some(vec![]);
-    };
+    // If storyboard spec is absent, return an empty vector
+    if let Some(parts_binding) = parts {
+        let mut parts = parts_binding.split('|').collect::<Vec<&str>>();
 
-    let mut parts = parts.unwrap_or("").split('|').collect::<Vec<&str>>();
+        let mut url = url::Url::parse(parts.remove(0))
+            .unwrap_or_else(|_| url::Url::parse("https://i.ytimg.com/").unwrap());
 
-    let mut url = url::Url::parse(parts.remove(0))
-        .unwrap_or(url::Url::parse("https://i.ytimg.com/").unwrap());
-    Some(
-        parts
+        let storyboards = parts
             .iter()
             .enumerate()
             .map(|(i, part)| {
-                let part_split_vec = part.split('#').collect::<Vec<&str>>();
-                let thumbnail_width = part_split_vec.first().unwrap_or(&"0");
-                let thumbnail_height = part_split_vec.get(1).unwrap_or(&"0");
-                let thumbnail_count = part_split_vec.get(2).unwrap_or(&"0");
-                let columns = part_split_vec.get(3).unwrap_or(&"0");
-                let rows = part_split_vec.get(4).unwrap_or(&"0");
-                let interval = part_split_vec.get(5).unwrap_or(&"0");
-                let name_replacement = part_split_vec.get(6).unwrap_or(&"0");
-                let sigh = part_split_vec.get(7).unwrap_or(&"0");
+                let part_split = part.split('#').collect::<Vec<&str>>();
+
+                let thumbnail_width = part_split
+                    .first()
+                    .unwrap_or(&"0")
+                    .parse::<i32>()
+                    .unwrap_or(0);
+                let thumbnail_height = part_split
+                    .get(1)
+                    .unwrap_or(&"0")
+                    .parse::<i32>()
+                    .unwrap_or(0);
+                let thumbnail_count = part_split
+                    .get(2)
+                    .unwrap_or(&"0")
+                    .parse::<i32>()
+                    .unwrap_or(0);
+                let columns = part_split
+                    .get(3)
+                    .unwrap_or(&"0")
+                    .parse::<i32>()
+                    .unwrap_or(0);
+                let rows = part_split
+                    .get(4)
+                    .unwrap_or(&"0")
+                    .parse::<i32>()
+                    .unwrap_or(0);
+                let interval = part_split
+                    .get(5)
+                    .unwrap_or(&"0")
+                    .parse::<i32>()
+                    .unwrap_or(0);
+                let name_replacement = part_split.get(6).unwrap_or(&"0");
+                let sigh = part_split.get(7).unwrap_or(&"0");
 
                 url.query_pairs_mut().append_pair("sigh", sigh);
 
-                let thumbnail_count_parsed = thumbnail_count.parse::<i32>().unwrap_or(0i32);
-                let columns_parsed = columns.parse::<i32>().unwrap_or(0i32);
-                let rows_parsed = rows.parse::<i32>().unwrap_or(0i32);
-
-                let storyboard_count_ceiled =
-                    thumbnail_count_parsed / (columns_parsed * rows_parsed);
+                let storyboard_count_ceiled = thumbnail_count / (columns * rows);
 
                 let template_url = url
                     .as_str()
-                    .replace("$L", i.to_string().as_str())
+                    .replace("$L", &i.to_string())
                     .replace("$N", name_replacement);
 
                 StoryBoard {
-                    template_url,
-                    thumbnail_width: thumbnail_width.parse::<i32>().unwrap_or(0i32),
-                    thumbnail_height: thumbnail_height.parse::<i32>().unwrap_or(0i32),
-                    thumbnail_count: thumbnail_count_parsed,
-                    interval: interval.parse::<i32>().unwrap_or(0i32),
-                    columns: columns_parsed,
-                    rows: rows_parsed,
+                    template_url: template_url.to_string(),
+                    thumbnail_width,
+                    thumbnail_height,
+                    thumbnail_count,
+                    interval,
+                    columns,
+                    rows,
                     storyboard_count: storyboard_count_ceiled,
                 }
             })
-            .collect::<Vec<StoryBoard>>(),
-    )
+            .collect::<Vec<StoryBoard>>();
+
+        Some(storyboards)
+    } else {
+        Some(Vec::new())
+    }
 }
 
 pub fn get_chapters(info: &Value) -> Option<Vec<Chapter>> {
