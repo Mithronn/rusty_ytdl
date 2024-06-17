@@ -228,22 +228,15 @@ pub fn choose_format<'a>(
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-pub fn sort_formats_by<F>(a: &VideoFormat, b: &VideoFormat, sort_by: Vec<F>) -> Ordering
+pub fn sort_formats_by<F>(a: &VideoFormat, b: &VideoFormat, sort_by: &[F]) -> Ordering
 where
     F: Fn(&VideoFormat) -> i32,
 {
-    let mut res = Ordering::Equal;
-
-    for func in sort_by {
-        res = func(b).cmp(&func(a));
-
-        // Is not equal return order
-        if res != Ordering::Equal {
-            break;
-        }
-    }
-
-    res
+    sort_by
+        .iter()
+        .map(|func| func(b).cmp(&func(a)))
+        .find(|&order| order != Ordering::Equal)
+        .unwrap_or(Ordering::Equal)
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
@@ -276,7 +269,7 @@ pub fn sort_formats_by_video(a: &VideoFormat, b: &VideoFormat) -> Ordering {
                 index
             },
         ]
-        .to_vec(),
+        .as_ref(),
     )
 }
 
@@ -298,7 +291,7 @@ pub fn sort_formats_by_audio(a: &VideoFormat, b: &VideoFormat) -> Ordering {
                 index
             },
         ]
-        .to_vec(),
+        .as_ref(),
     )
 }
 
@@ -357,7 +350,7 @@ pub fn sort_formats(a: &VideoFormat, b: &VideoFormat) -> Ordering {
                 index
             },
         ]
-        .to_vec(),
+        .as_ref(),
     )
 }
 
@@ -994,11 +987,7 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
     let mut functions: Vec<(String, String)> = vec![];
 
     #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-    fn extract_manipulations(
-        body: String,
-        caller: &str,
-        // cut_after_js_script: &mut js_sandbox::Script,
-    ) -> String {
+    fn extract_manipulations(body: String, caller: &str) -> String {
         let function_name = between(caller, r#"a=a.split("");"#, ".");
         if function_name.is_empty() {
             return String::new();
@@ -1013,9 +1002,6 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
 
         let sub_body = body.slice((ndx.unwrap() + function_start.len() - 1)..);
 
-        // let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
-        // let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("null"));
-
         let cut_after_sub_body = cut_after_js(sub_body).unwrap_or("null");
 
         let return_formatted_string = format!("var {function_name}={cut_after_sub_body}");
@@ -1024,11 +1010,7 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
     }
 
     #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-    fn extract_decipher(
-        body: String,
-        functions: &mut Vec<(String, String)>,
-        // cut_after_js_script: &mut js_sandbox::Script,
-    ) {
+    fn extract_decipher(body: String, functions: &mut Vec<(String, String)>) {
         let function_name = between(body.as_str(), r#"a.set("alr","yes");c&&(c="#, "(decodeURIC");
         // println!("decipher function name: {}", function_name);
         if !function_name.is_empty() {
@@ -1037,9 +1019,6 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
 
             if let Some(ndx_some) = ndx {
                 let sub_body = body.slice((ndx_some + function_start.len())..);
-
-                // let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
-                // let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
 
                 let cut_after_sub_body = cut_after_js(sub_body).unwrap_or("{}");
 
@@ -1062,11 +1041,7 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
     }
 
     #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-    fn extract_ncode(
-        body: String,
-        functions: &mut Vec<(String, String)>,
-        // cut_after_js_script: &mut js_sandbox::Script,
-    ) {
+    fn extract_ncode(body: String, functions: &mut Vec<(String, String)>) {
         let mut function_name = between(body.as_str(), r#"&&(b=a.get("n"))&&(b="#, "(b)");
 
         let left_name = format!(
@@ -1091,9 +1066,6 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
             if let Some(ndx_some) = ndx {
                 let sub_body = body.slice((ndx_some + function_start.len())..);
 
-                // let cut_after_sub_body = cut_after_js_script.call("cutAfterJS", (&sub_body,));
-                // let cut_after_sub_body: String = cut_after_sub_body.unwrap_or(String::from("{}"));
-
                 let cut_after_sub_body = cut_after_js(sub_body).unwrap_or("{}");
 
                 let mut function_body = format!("var {function_start}{cut_after_sub_body};");
@@ -1105,11 +1077,8 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
         }
     }
 
-    extract_decipher(
-        body.clone(),
-        &mut functions, /*&mut cut_after_js_script*/
-    );
-    extract_ncode(body, &mut functions /*&mut cut_after_js_script*/);
+    extract_decipher(body.clone(), &mut functions);
+    extract_ncode(body, &mut functions);
 
     // println!("{:#?} {}", functions, functions.len());
     functions

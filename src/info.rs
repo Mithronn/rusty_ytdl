@@ -10,21 +10,19 @@ use url::Url;
 
 #[cfg(feature = "live")]
 use crate::stream::{LiveStream, LiveStreamOptions};
+#[cfg(feature = "ffmpeg")]
+use crate::structs::FFmpegArgs;
 
 use crate::{
     constants::BASE_URL,
     info_extras::{get_media, get_related_videos},
     stream::{NonLiveStream, NonLiveStreamOptions, Stream},
     structs::{PlayerResponse, VideoError, VideoInfo, VideoOptions},
-};
-
-#[cfg(feature = "ffmpeg")]
-use crate::structs::FFmpegArgs;
-
-use crate::utils::{
-    between, choose_format, clean_video_details, get_functions, get_html, get_html5player,
-    get_random_v6_ip, get_video_id, is_not_yet_broadcasted, is_play_error, is_private_video,
-    is_rental, parse_live_video_formats, parse_video_formats, sort_formats,
+    utils::{
+        between, choose_format, clean_video_details, get_functions, get_html, get_html5player,
+        get_random_v6_ip, get_video_id, is_not_yet_broadcasted, is_play_error, is_private_video,
+        is_rental, parse_live_video_formats, parse_video_formats, sort_formats,
+    },
 };
 
 // 10485760 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
@@ -69,31 +67,32 @@ impl Video {
     ) -> Result<Self, VideoError> {
         let video_id = get_video_id(&url_or_id.into()).ok_or(VideoError::VideoNotFound)?;
 
-        let client = if let Some(client) = options.request_options.client.as_ref() {
-            client.clone()
-        } else {
-            let mut client = Client::builder();
+        let client = match options.request_options.client.clone() {
+            Some(client) => client,
+            None => {
+                let mut client_builder = Client::builder();
 
-            if let Some(proxy) = options.request_options.proxy.as_ref() {
-                client = client.proxy(proxy.clone());
+                if let Some(proxy) = &options.request_options.proxy {
+                    client_builder = client_builder.proxy(proxy.clone());
+                }
+
+                if let Some(ipv6_block) = &options.request_options.ipv6_block {
+                    let ipv6 = get_random_v6_ip(ipv6_block)?;
+                    client_builder = client_builder.local_address(ipv6);
+                }
+
+                if let Some(cookie) = &options.request_options.cookies {
+                    let mut headers = HeaderMap::new();
+                    headers.insert(
+                        COOKIE,
+                        HeaderValue::from_str(cookie).map_err(|_x| VideoError::CookieError)?,
+                    );
+
+                    client_builder = client_builder.default_headers(headers)
+                }
+
+                client_builder.build().map_err(VideoError::Reqwest)?
             }
-
-            if let Some(ipv6_block) = options.request_options.ipv6_block.as_ref() {
-                let ipv6 = get_random_v6_ip(ipv6_block)?;
-                client = client.local_address(ipv6);
-            }
-
-            if let Some(cookie) = options.request_options.cookies.as_ref() {
-                let mut headers = HeaderMap::new();
-                headers.insert(
-                    COOKIE,
-                    HeaderValue::from_str(cookie).map_err(|_x| VideoError::CookieError)?,
-                );
-
-                client = client.default_headers(headers)
-            }
-
-            client.build().map_err(VideoError::Reqwest)?
         };
 
         let retry_policy = ExponentialBackoff::builder()
@@ -210,26 +209,12 @@ impl Video {
     /// - `HLS` and `DashMPD` formats included!
     #[cfg_attr(feature = "performance_analysis", flamer::flame)]
     pub async fn get_info(&self) -> Result<VideoInfo, VideoError> {
-        let client = &self.client;
-
         let mut info = self.get_basic_info().await?;
 
-        let has_manifest = info.dash_manifest_url.is_some() || info.hls_manifest_url.is_some();
-
-        // if has_manifest && info.dash_manifest_url.is_some() {}
-
-        if has_manifest && info.hls_manifest_url.is_some() {
-            let url = info.hls_manifest_url.as_ref().expect("IMPOSSIBLE");
-            let unformated_formats = get_m3u8(url, client).await;
-
-            // Skip if error occured
-            if let Ok(unformated_formats) = unformated_formats {
-                // Push formated infos to formats
-                info.formats = [
-                    &info.formats[..],
-                    &parse_live_video_formats(unformated_formats)[..],
-                ]
-                .concat()
+        if let Some(url) = &info.hls_manifest_url {
+            if let Ok(unformated_formats) = get_m3u8(url, &self.client).await {
+                info.formats
+                    .extend(parse_live_video_formats(unformated_formats));
             }
         }
 

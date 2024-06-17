@@ -551,56 +551,6 @@ pub struct StaticFormat {
     pub audio_bitrate: Option<u64>,
 }
 
-impl From<StaticFormatRaw> for StaticFormat {
-    fn from(value: StaticFormatRaw) -> Self {
-        let mime: Mime = Mime::from_str(&value.mime_type).expect("IMPOSSIBLE");
-
-        let codecs: Vec<String> = mime
-            .get_param("codecs")
-            .map(|x| x.as_str().split(", ").map(|x| x.to_string()).collect())
-            .unwrap_or_default();
-
-        let container: String = mime.subtype().to_string();
-
-        let video_codec = if mime.type_() == mime::VIDEO {
-            codecs.first().cloned()
-        } else {
-            None
-        };
-
-        let audio_codec = if mime.type_() == mime::AUDIO {
-            codecs.first().cloned()
-        } else {
-            codecs.get(1).cloned()
-        };
-
-        Self {
-            mime_type: MimeType {
-                mime,
-                container,
-                codecs,
-                video_codec,
-                audio_codec,
-            },
-            quality_label: value.quality_label,
-            bitrate: value.bitrate,
-            audio_bitrate: value.audio_bitrate,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-
-pub struct StaticFormatRaw {
-    #[serde(rename = "mimeType")]
-    pub mime_type: String,
-    #[serde(rename = "qualityLabel")]
-    pub quality_label: Option<String>,
-    pub bitrate: Option<u64>,
-    #[serde(rename = "audioBitrate")]
-    pub audio_bitrate: Option<u64>,
-}
-
 pub trait StringUtils {
     fn substring(&self, start: usize, end: usize) -> &str;
     fn substr(&self, start: usize, len: usize) -> &str;
