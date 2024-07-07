@@ -128,17 +128,13 @@ impl Video {
                 .filter(|x| x.inner_html().contains("var ytInitialPlayerResponse ="))
                 .map(|x| x.inner_html().replace("var ytInitialPlayerResponse =", ""))
                 .next()
-                .unwrap_or(String::from(""))
-                .trim()
-                .to_string();
+                .unwrap_or(String::from(""));
             let mut initial_response_string = document
                 .select(&scripts_selector)
                 .filter(|x| x.inner_html().contains("var ytInitialData ="))
                 .map(|x| x.inner_html().replace("var ytInitialData =", ""))
                 .next()
-                .unwrap_or(String::from(""))
-                .trim()
-                .to_string();
+                .unwrap_or(String::from(""));
 
             // remove json object last element (;)
             initial_response_string.pop();
@@ -146,14 +142,14 @@ impl Video {
             let player_response = serde_json::from_str::<PlayerResponse>(
                 format!(
                     "{{{}}}}}}}",
-                    between(player_response_string.as_str(), "{", "}}};")
+                    between(player_response_string.trim(), "{", "}}};")
                 )
                 .as_str(),
             )
             .unwrap();
 
             let initial_response =
-                serde_json::from_str::<serde_json::Value>(&initial_response_string).unwrap();
+                serde_json::from_str::<serde_json::Value>(initial_response_string.trim()).unwrap();
 
             (player_response, initial_response)
         };
