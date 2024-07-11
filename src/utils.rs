@@ -960,6 +960,8 @@ pub async fn get_functions(
 
     let url = url.as_str();
 
+    // println!("html5player url: {}", url);
+
     {
         // Check if an URL is already cached
         if let Some((cached_url, cached_functions)) = FUNCTIONS.read().await.as_ref() {
@@ -1026,14 +1028,12 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
 
                 function_body = format!(
                     "{manipulated_body};{function_body};",
-                    manipulated_body = extract_manipulations(
-                        body.clone(),
-                        function_body.as_str(),
-                        // cut_after_js_script
-                    ),
+                    manipulated_body = extract_manipulations(body.clone(), function_body.as_str(),),
                 );
 
                 function_body.retain(|c| c != '\n');
+
+                // println!("decipher function: {}", function_body);
 
                 functions.push((function_name.to_string(), function_body));
             }
@@ -1042,7 +1042,7 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
 
     #[cfg_attr(feature = "performance_analysis", flamer::flame)]
     fn extract_ncode(body: String, functions: &mut Vec<(String, String)>) {
-        let mut function_name = between(body.as_str(), r#"&&(b=a.get("n"))&&(b="#, "(b)");
+        let mut function_name = between(body.as_str(), r#"c=a.get(b))&&(c="#, "(c)");
 
         let left_name = format!(
             "var {splitted_function_name}=[",
@@ -1072,6 +1072,8 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
 
                 function_body.retain(|c| c != '\n');
 
+                // println!("ncode function: {}", function_body);
+
                 functions.push((function_name.to_string(), function_body));
             }
         }
@@ -1080,7 +1082,6 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
     extract_decipher(body.clone(), &mut functions);
     extract_ncode(body, &mut functions);
 
-    // println!("{:#?} {}", functions, functions.len());
     functions
 }
 
