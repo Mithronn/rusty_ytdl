@@ -1,5 +1,6 @@
+use once_cell::sync::Lazy;
 use reqwest::{
-    header::{HeaderMap, HeaderValue, COOKIE},
+    header::{HeaderMap, HeaderName, HeaderValue, COOKIE},
     Client,
 };
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
@@ -17,11 +18,12 @@ use crate::{
     constants::BASE_URL,
     info_extras::{get_media, get_related_videos},
     stream::{NonLiveStream, NonLiveStreamOptions, Stream},
-    structs::{PlayerResponse, VideoError, VideoInfo, VideoOptions},
+    structs::{PlayerResponse, VideoError, VideoInfo, VideoOptions, YTConfig},
     utils::{
         between, choose_format, clean_video_details, get_functions, get_html, get_html5player,
-        get_random_v6_ip, get_video_id, is_not_yet_broadcasted, is_play_error, is_private_video,
-        is_rental, parse_live_video_formats, parse_video_formats, sort_formats,
+        get_random_v6_ip, get_video_id, get_ytconfig, is_age_restricted_from_html,
+        is_not_yet_broadcasted, is_play_error, is_private_video, is_rental,
+        parse_live_video_formats, parse_video_formats, sort_formats,
     },
 };
 
@@ -120,7 +122,7 @@ impl Video {
 
         let response = get_html(client, url_parsed.as_str(), None).await?;
 
-        let (player_response, initial_response): (PlayerResponse, serde_json::Value) = {
+        let (mut player_response, initial_response): (PlayerResponse, serde_json::Value) = {
             let document = Html::parse_document(&response);
             let scripts_selector = Selector::parse("script").unwrap();
             let player_response_string = document
@@ -158,14 +160,23 @@ impl Video {
             return Err(VideoError::VideoNotFound);
         }
 
-        if is_private_video(&player_response) {
+        let is_age_restricted = is_age_restricted_from_html(&player_response, &response);
+
+        if is_private_video(&player_response) && !is_age_restricted {
             return Err(VideoError::VideoIsPrivate);
         }
 
-        if player_response.streaming_data.is_none()
-            || is_rental(&player_response)
-            || is_not_yet_broadcasted(&player_response)
-        {
+        if is_age_restricted {
+            let embed_ytconfig = self.get_embeded_ytconfig(&response).await?;
+
+            let player_response_new =
+                serde_json::from_str::<PlayerResponse>(&embed_ytconfig).unwrap();
+
+            player_response.streaming_data = player_response_new.streaming_data;
+            player_response.storyboards = player_response_new.storyboards;
+        }
+
+        if is_rental(&player_response) || is_not_yet_broadcasted(&player_response) {
             return Err(VideoError::VideoSourceNotFound);
         }
 
@@ -455,6 +466,68 @@ impl Video {
     #[allow(dead_code)]
     pub(crate) fn get_options(&self) -> VideoOptions {
         self.options.clone()
+    }
+
+    #[cfg_attr(feature = "performance_analysis", flamer::flame)]
+    async fn get_embeded_ytconfig(&self, html: &str) -> Result<String, VideoError> {
+        let ytcfg = get_ytconfig(html)?;
+
+        // This client can access age restricted videos (unless the uploader has disabled the 'allow embedding' option)
+        // See: https://github.com/yt-dlp/yt-dlp/blob/28d485714fef88937c82635438afba5db81f9089/yt_dlp/extractor/youtube.py#L231
+        let query = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                    "clientVersion": "2.0",
+                    "hl": "en",
+                    "clientScreen": "EMBED",
+                },
+                "thirdParty": {
+                    "embedUrl": "https://google.com",
+                },
+            },
+            "playbackContext": {
+                "contentPlaybackContext": {
+                    "signatureTimestamp": ytcfg.sts.unwrap_or(0),
+                    "html5Preference": "HTML5_PREF_WANTS",
+                },
+            },
+            "videoId": self.get_video_id(),
+        });
+
+        static CONFIGS: Lazy<(HeaderMap, &str)> = Lazy::new(|| {
+            use std::str::FromStr;
+
+            (HeaderMap::from_iter([
+            (HeaderName::from_str("content-type").unwrap(), HeaderValue::from_str("application/json").unwrap()),
+            (HeaderName::from_str("X-Youtube-Client-Name").unwrap(), HeaderValue::from_str("85").unwrap()),
+            (HeaderName::from_str("X-Youtube-Client-Version").unwrap(), HeaderValue::from_str("2.0").unwrap()),
+            (HeaderName::from_str("Origin").unwrap(), HeaderValue::from_str("https://www.youtube.com").unwrap()),
+            (HeaderName::from_str("User-Agent").unwrap(), HeaderValue::from_str("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3513.0 Safari/537.36").unwrap()),
+            (HeaderName::from_str("Referer").unwrap(), HeaderValue::from_str("https://www.youtube.com/").unwrap()),
+            (HeaderName::from_str("Accept").unwrap(), HeaderValue::from_str("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8").unwrap()),
+            (HeaderName::from_str("Accept-Language").unwrap(), HeaderValue::from_str("en-US,en;q=0.5").unwrap()),
+            (HeaderName::from_str("Accept-Encoding").unwrap(), HeaderValue::from_str("gzip, deflate").unwrap()),
+        ]),"AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8")
+        });
+
+        let response = self
+            .client
+            .post("https://www.youtube.com/youtubei/v1/player")
+            .headers(CONFIGS.0.clone())
+            .query(&[("key", CONFIGS.1)])
+            .json(&query)
+            .send()
+            .await
+            .map_err(VideoError::ReqwestMiddleware)?;
+
+        let response = response
+            .error_for_status()
+            .map_err(VideoError::Reqwest)?
+            .text()
+            .await?;
+
+        Ok(response)
     }
 }
 

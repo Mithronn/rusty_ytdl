@@ -2,6 +2,7 @@ use boa_engine::{Context, Source};
 use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
+use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
@@ -20,7 +21,7 @@ use crate::{
     info_extras::{get_author, get_chapters, get_dislikes, get_likes, get_storyboards},
     structs::{
         Embed, PlayerResponse, StreamingDataFormat, StringUtils, VideoDetails, VideoError,
-        VideoFormat, VideoOptions, VideoQuality, VideoSearchOptions,
+        VideoFormat, VideoOptions, VideoQuality, VideoSearchOptions, YTConfig,
     },
 };
 
@@ -500,7 +501,7 @@ fn ncode(
     n_transfrom_cache: &mut HashMap<String, String>,
 ) -> String {
     let components: serde_json::value::Map<String, serde_json::Value> =
-        serde_qs::from_str(&decode(url).unwrap_or(Cow::Borrowed(url))).unwrap();
+        serde_qs::from_str(&decode(url).unwrap_or(Cow::Borrowed(url))).unwrap_or_default();
 
     let n_transform_value = match components.get("n").and_then(serde_json::Value::as_str) {
         Some(val) if !n_transform_script_string.1.is_empty() => val,
@@ -534,7 +535,7 @@ fn ncode(
             .and_then(|result| {
                 result
                     .as_string()
-                    .map(|js_str| js_str.to_std_string().unwrap())
+                    .map(|js_str| js_str.to_std_string().unwrap_or_default())
             })
     }
 
@@ -889,6 +890,54 @@ pub fn is_age_restricted(media: &serde_json::Value) -> bool {
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
+pub fn is_age_restricted_from_html(player_response: &PlayerResponse, html: &str) -> bool {
+    if !player_response
+        .micro_format
+        .as_ref()
+        .and_then(|x| x.player_micro_format_renderer.clone())
+        .and_then(|x| x.is_family_safe)
+        .unwrap_or(true)
+    {
+        return true;
+    }
+
+    let document = Html::parse_document(html);
+    let metas_selector = Selector::parse("meta").unwrap();
+
+    // <meta property="og:restrictions:age" content="18+">
+    let og_restrictions_age = document
+        .select(&metas_selector)
+        .filter(|x| {
+            x.attr("itemprop")
+                .or(x.attr("name"))
+                .or(x.attr("property"))
+                .or(x.attr("id"))
+                .or(x.attr("http-equiv"))
+                == Some("og:restrictions:age")
+        })
+        .map(|x| x.attr("content").unwrap_or("").to_string())
+        .next()
+        .unwrap_or(String::from(""));
+
+    // <meta itemprop="isFamilyFriendly" content="true">
+    let is_family_friendly = document
+        .select(&metas_selector)
+        .filter(|x| {
+            x.attr("itemprop")
+                .or(x.attr("name"))
+                .or(x.attr("property"))
+                .or(x.attr("id"))
+                .or(x.attr("http-equiv"))
+                == Some("isFamilyFriendly")
+        })
+        .map(|x| x.attr("content").unwrap_or("").to_string())
+        .next()
+        .unwrap_or(String::from(""));
+
+    is_family_friendly == "false" || og_restrictions_age == "18+"
+}
+
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn is_rental(player_response: &PlayerResponse) -> bool {
     if player_response.playability_status.is_none() {
         return false;
@@ -944,6 +993,17 @@ pub fn is_private_video(player_response: &PlayerResponse) -> bool {
         .and_then(|x| x.status.clone())
         .map(|x| x == "LOGIN_REQUIRED")
         .unwrap_or(false)
+}
+
+pub fn get_ytconfig(html: &str) -> Result<YTConfig, VideoError> {
+    static PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r#"ytcfg\.set\((\{.*\})\)"#).unwrap());
+    match PATTERN.captures(html) {
+        Some(c) => Ok(
+            serde_json::from_str::<YTConfig>(c.get(1).map_or("", |m| m.as_str()))
+                .map_err(|_x| VideoError::VideoSourceNotFound)?,
+        ),
+        None => Err(VideoError::VideoSourceNotFound),
+    }
 }
 
 type CacheFunctions = Lazy<RwLock<Option<(String, Vec<(String, String)>)>>>;

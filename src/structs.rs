@@ -987,3 +987,9 @@ pub struct ErrorScreen {
     #[serde(rename = "playerLegacyDesktopYpcOfferRenderer")]
     pub player_legacy_desktop_ypc_offer_renderer: Option<String>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct YTConfig {
+    #[serde(rename = "STS")]
+    pub sts: Option<u64>,
+}
