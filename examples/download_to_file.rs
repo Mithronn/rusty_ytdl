@@ -6,7 +6,7 @@ async fn main() {
 
     let video = Video::new(url).unwrap();
 
-    let path = std::path::Path::new(r"test.mp3");
+    let path = std::path::Path::new(r"test.mp4");
 
     video.download(path).await.unwrap();
 }
