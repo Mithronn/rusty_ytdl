@@ -1,3 +1,4 @@
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, json, map::Map, Value};
@@ -13,11 +14,9 @@ pub fn get_related_videos(info: &Value) -> Option<Vec<RelatedVideo>> {
     let mut secondary_results: Vec<Value> = vec![];
 
     let mut rvs_params_closure = || -> Result<(), &str> {
-        rvs_params = info
-            .as_object()
-            .and_then(|x| x.get("webWatchNextResponseExtensionData"))
-            .and_then(|x| x.get("relatedVideoArgs"))
-            .and_then(|x| x.as_str().map(|c| c.split(',').collect::<Vec<&str>>()))
+        rvs_params = info["webWatchNextResponseExtensionData"]["relatedVideoArgs"]
+            .as_str()
+            .map(|c| c.split(',').collect::<Vec<&str>>())
             .unwrap_or_default();
         Ok(())
     };
@@ -27,15 +26,12 @@ pub fn get_related_videos(info: &Value) -> Option<Vec<RelatedVideo>> {
     }
 
     let mut secondary_results_closure = || -> Result<(), &str> {
-        secondary_results = info
-            .as_object()
-            .and_then(|x| x.get("contents"))
-            .and_then(|x| x.get("twoColumnWatchNextResults"))
-            .and_then(|x| x.get("secondaryResults"))
-            .and_then(|x| x.get("secondaryResults"))
-            .and_then(|x| x.get("results"))
-            .and_then(|x| Some(x.as_array()?.to_vec()))
-            .unwrap_or_default();
+        secondary_results = info["contents"]["twoColumnWatchNextResults"]["secondaryResults"]
+            ["secondaryResults"]["results"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .to_vec();
         Ok(())
     };
 
@@ -43,52 +39,37 @@ pub fn get_related_videos(info: &Value) -> Option<Vec<RelatedVideo>> {
         secondary_results = vec![];
     }
 
-    let contents_fallback: Vec<Value> = vec![];
-    let fallback_value = Map::new();
-
     let mut videos: Vec<RelatedVideo> = vec![];
     for result in secondary_results {
-        let details = result
-            .as_object()
-            .and_then(|x| {
-                x.get("compactVideoRenderer")
-                    .map(|c| c.as_object().unwrap())
-            })
-            .unwrap_or(&fallback_value);
+        let details = result.as_object().and_then(|x| {
+            x.get("compactVideoRenderer")
+                .map(|c| c.as_object().cloned().unwrap_or_default())
+        });
 
-        if !details.is_empty() {
-            let video = parse_related_video(details, &rvs_params);
-
-            if let Some(video_some) = video {
+        if let Some(details) = details {
+            if let Some(video_some) = parse_related_video(&details, &rvs_params) {
                 videos.push(video_some)
             }
-        } else {
-            let autoplay = result
-                .as_object()
-                .and_then(|x| x.get("compactAutoplayRenderer").and_then(|c| c.as_object()))
-                .unwrap_or(&fallback_value);
-
-            if !autoplay.contains_key("contents") {
-                continue;
-            };
-
+        } else if let Some(autoplay) = result.as_object().and_then(|x| {
+            x.get("compactAutoplayRenderer")
+                .map(|c| c.as_object().cloned().unwrap_or_default())
+        }) {
             let contents = autoplay
                 .get("contents")
-                .and_then(|x| x.as_array())
-                .unwrap_or(&contents_fallback);
+                .map(|x| x.as_array().cloned().unwrap_or_default());
 
-            for content in contents {
-                let content_details = content
-                    .get("compactVideoRenderer")
-                    .and_then(|x| x.as_object())
-                    .unwrap_or(&fallback_value);
-                if content_details.is_empty() {
-                    continue;
-                }
+            if let Some(contents) = contents {
+                for content in contents {
+                    let content_details = content
+                        .get("compactVideoRenderer")
+                        .map(|x| x.as_object().cloned().unwrap_or_default());
 
-                let video = parse_related_video(content_details, &rvs_params);
-                if let Some(video_some) = video {
-                    videos.push(video_some)
+                    if let Some(content_details) = content_details {
+                        let video = parse_related_video(&content_details, &rvs_params);
+                        if let Some(video_some) = video {
+                            videos.push(video_some)
+                        }
+                    }
                 }
             }
         }
@@ -107,20 +88,21 @@ pub fn parse_related_video(
         short_view_count_text: String,
         length_seconds: String,
     }
-    let mut view_count = if details.contains_key("viewCountText") {
-        get_text(&details["viewCountText"]).as_str().unwrap_or("")
-    } else {
-        "0"
-    };
-
-    let mut short_view_count = if details.contains_key("shortViewCountText") {
-        get_text(&details["shortViewCountText"])
-            .as_str()
-            .unwrap_or("")
-            .to_string()
+    let mut view_count = if let Some(view_count_text) = details.get("viewCountText") {
+        get_text(view_count_text).as_str().unwrap_or("").to_string()
     } else {
         "0".to_string()
     };
+
+    let mut short_view_count =
+        if let Some(short_view_count_text) = details.get("shortViewCountText") {
+            get_text(short_view_count_text)
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        } else {
+            "0".to_string()
+        };
 
     let first = |string: &str| {
         string
@@ -134,7 +116,12 @@ pub fn parse_related_video(
         let rvs_details_index = rvs_params
             .iter()
             .map(|x| serde_qs::from_str::<QueryParams>(x).unwrap())
-            .position(|r| r.id == *details["videoId"].as_str().unwrap_or("0"));
+            .position(|r| {
+                r.id == *details
+                    .get("videoId")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("0")
+            });
 
         if let Some(rvs_details_index_some) = rvs_details_index {
             let rvs_params_to_short_view_count = rvs_params
@@ -144,17 +131,18 @@ pub fn parse_related_video(
 
             short_view_count = serde_qs::from_str::<QueryParams>(rvs_params_to_short_view_count)
                 .map(|x| x.short_view_count_text)
-                .unwrap_or("0".to_string())
+                .unwrap_or("0".to_string());
         }
     }
 
-    view_count = if first(view_count) {
+    view_count = if first(&view_count) {
         view_count
             .split(' ')
             .collect::<Vec<&str>>()
             .first()
             .cloned()
             .unwrap_or("")
+            .to_string()
     } else {
         short_view_count
             .split(' ')
@@ -162,6 +150,7 @@ pub fn parse_related_video(
             .first()
             .cloned()
             .unwrap_or("")
+            .to_string()
     };
 
     let is_live = details
@@ -170,10 +159,7 @@ pub fn parse_related_video(
             c.as_array()
                 .map(|x| {
                     x.iter()
-                        .filter(|x| {
-                            let json = json!(x);
-                            json["metadataBadgeRenderer"]["label"] == "LIVE NOW"
-                        })
+                        .filter(|x| x["metadataBadgeRenderer"]["label"] == "LIVE NOW")
                         .count()
                         > 0
                 })
@@ -181,25 +167,23 @@ pub fn parse_related_video(
         })
         .unwrap_or(false);
 
-    let browse_end_point =
-        &details["shortBylineText"]["runs"][0]["navigationEndpoint"]["browseEndpoint"];
+    let browse_end_point = &details
+        .get("shortBylineText")
+        .map(|x| x["runs"][0]["navigationEndpoint"]["browseEndpoint"].clone())
+        .unwrap_or_default();
     let channel_id = &browse_end_point["browseId"];
-    let author_user = browse_end_point
-        .get("canonicalBaseUrl")
-        .map(|x| {
-            x.as_str()
-                .map(|c| {
-                    c.split('/')
-                        .collect::<Vec<&str>>()
-                        .last()
-                        .cloned()
-                        .unwrap_or("")
-                })
+    let author_user = browse_end_point["canonicalBaseUrl"]
+        .as_str()
+        .map(|c| {
+            c.split('/')
+                .collect::<Vec<&str>>()
+                .last()
+                .cloned()
                 .unwrap_or("")
         })
         .unwrap_or("");
 
-    let view_count_regex = Regex::new(r",").unwrap();
+    static VIEW_COUNT_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r",").unwrap());
 
     let video = RelatedVideo {
         id: details
@@ -207,20 +191,13 @@ pub fn parse_related_video(
             .and_then(|x| x.as_str())
             .unwrap_or("")
             .to_string(),
-        title: if details.contains_key("title") {
-            get_text(&details["title"])
-                .as_str()
-                .unwrap_or("")
-                .to_string()
+        title: if let Some(title) = details.get("title") {
+            get_text(title).as_str().unwrap_or("").to_string()
         } else {
             String::from("")
         },
-        url: if details.contains_key("videoId") {
-            let id = details
-                .get("videoId")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string();
+        url: if let Some(video_id) = details.get("videoId") {
+            let id = video_id.as_str().unwrap_or("").to_string();
             if !id.is_empty() {
                 format!("{}{}", BASE_URL, id)
             } else {
@@ -229,8 +206,8 @@ pub fn parse_related_video(
         } else {
             String::from("")
         },
-        published: if details.contains_key("publishedTimeText") {
-            get_text(&details["publishedTimeText"])
+        published: if let Some(published_time_text) = details.get("publishedTimeText") {
+            get_text(published_time_text)
                 .as_str()
                 .unwrap_or("")
                 .to_string()
@@ -240,11 +217,8 @@ pub fn parse_related_video(
         author: if !browse_end_point.is_null() {
             Some(Author {
                 id: channel_id.as_str().unwrap_or("").to_string(),
-                name: if details.contains_key("shortBylineText") {
-                    get_text(&details["shortBylineText"])
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string()
+                name: if let Some(text) = details.get("shortBylineText") {
+                    get_text(text).as_str().unwrap_or("").to_string()
                 } else {
                     String::from("")
                 },
@@ -274,8 +248,11 @@ pub fn parse_related_video(
                 } else {
                     String::from("")
                 },
-                thumbnails: if !details["channelThumbnail"]["thumbnails"].is_null() {
-                    details["channelThumbnail"]["thumbnails"]
+                thumbnails: if let Some(thumbnails) = details
+                    .get("channelThumbnail")
+                    .and_then(|x| x.get("thumbnails"))
+                {
+                    thumbnails
                         .as_array()
                         .map(|f| {
                             f.iter()
@@ -316,8 +293,8 @@ pub fn parse_related_video(
                 } else {
                     vec![]
                 },
-                verified: if details.contains_key("ownerBadges") {
-                    is_verified(&details["ownerBadges"])
+                verified: if let Some(badges) = details.get("ownerBadges") {
+                    is_verified(badges)
                 } else {
                     false
                 },
@@ -332,16 +309,17 @@ pub fn parse_related_video(
             .first()
             .unwrap_or(&"")
             .to_string(),
-        view_count: view_count_regex.replace_all(view_count, "").to_string(),
-        length_seconds: if details.contains_key("lengthText") {
-            let time = (time_to_ms(get_text(&details["lengthText"]).as_str().unwrap_or("0")) / 1000)
-                as f32;
+        view_count: VIEW_COUNT_REGEX.replace_all(&view_count, "").to_string(),
+        length_seconds: if let Some(length_text) = details.get("lengthText") {
+            let time = (time_to_ms(get_text(length_text).as_str().unwrap_or("0")) / 1000) as f32;
             time.floor().to_string()
         } else {
             "0".to_string()
         },
-        thumbnails: if !details["thumbnail"]["thumbnails"].is_null() {
-            details["thumbnail"]["thumbnails"]
+        thumbnails: if let Some(thumbnails) =
+            details.get("thumbnail").and_then(|x| x.get("thumbnails"))
+        {
+            thumbnails
                 .as_array()
                 .map(|f| {
                     f.iter()
@@ -385,94 +363,41 @@ pub fn parse_related_video(
 }
 
 pub fn get_media(info: &Value) -> Option<Value> {
-    let empty_serde_array = json!([]);
-    let empty_serde_object_array = vec![json!({})];
-    let empty_serde_object = json!({});
-
-    let results = info
-        .as_object()
-        .and_then(|x| x.get("contents"))
-        .and_then(|x| x.get("twoColumnWatchNextResults"))
-        .and_then(|x| x.get("results"))
-        .and_then(|x| x.get("results"))
-        .and_then(|x| x.get("contents"))
-        .unwrap_or(&empty_serde_array)
+    let results = info["contents"]["twoColumnWatchNextResults"]["results"]["results"]["contents"]
         .as_array()
-        .unwrap_or(&empty_serde_object_array);
+        .cloned()
+        .unwrap_or_default();
 
     let result_option = results
         .iter()
-        .find(|x| x.get("videoSecondaryInfoRenderer").is_some());
+        .find(|x| !x["videoSecondaryInfoRenderer"].is_null());
 
     let json_result = if let Some(result) = result_option {
-        let metadata_rows = if result.get("metadataRowContainer").is_some() {
-            result
-                .get("metadataRowContainer")
-                .and_then(|x| x.get("metadataRowContainerRenderer"))
-                .and_then(|x| x.get("rows"))
-                .unwrap_or(&empty_serde_object)
-        } else if result.get("videoSecondaryInfoRenderer").is_some()
-            && result
-                .get("videoSecondaryInfoRenderer")
-                .and_then(|x| x.get("metadataRowContainer"))
-                .is_some()
-        {
-            result
-                .get("videoSecondaryInfoRenderer")
-                .and_then(|x| x.get("metadataRowContainer"))
-                .and_then(|x| x.get("metadataRowContainerRenderer"))
-                .and_then(|x| x.get("rows"))
-                .unwrap_or(&empty_serde_object)
+        let metadata_rows = if let Some(result) = result.get("metadataRowContainer") {
+            result["metadataRowContainerRenderer"]["rows"].clone()
+        } else if let Some(result) = result.get("videoSecondaryInfoRenderer") {
+            result["metadataRowContainer"]["metadataRowContainerRenderer"]["rows"].clone()
         } else {
-            &empty_serde_object
-        }
-        .as_array()
-        .unwrap_or(&empty_serde_object_array);
+            serde_json::Value::Null
+        };
 
-        let mut return_object = json!({});
+        let mut return_object: Option<Value> = None;
 
-        for row in metadata_rows {
-            if row.get("metadataRowRenderer").is_some() {
-                let title = get_text(
-                    row.get("metadataRowRenderer")
-                        .and_then(|x| x.get("title"))
-                        .unwrap_or(&empty_serde_object),
-                )
-                .as_str()
-                .unwrap_or("title");
-                let contents = row
-                    .get("metadataRowRenderer")
-                    .and_then(|x| x.get("contents"))
-                    .and_then(|x| x.as_array())
-                    .unwrap_or(&empty_serde_object_array)
+        for row in metadata_rows.as_array().cloned().unwrap_or_default() {
+            if let Some(row) = row.get("metadataRowRenderer") {
+                let title = get_text(&row["title"]).as_str().unwrap_or("title");
+                let contents_value = row["contents"].as_array().cloned().unwrap_or_default();
+
+                let contents = contents_value.first().cloned().unwrap_or_default();
+
+                let runs = contents["runs"].as_array().cloned().unwrap_or_default();
+                let title_url = runs
                     .first()
-                    .unwrap_or(&empty_serde_object);
-
-                let runs = contents.get("runs");
-
-                let mut title_url = "";
-
-                if runs.is_some()
-                    && runs.unwrap_or(&empty_serde_object).is_array()
-                    && runs
-                        .unwrap_or(&empty_serde_object)
-                        .as_array()
-                        .and_then(|x| x.first())
-                        .and_then(|x| x.get("navigationEndpoint"))
-                        .is_some()
-                {
-                    title_url = runs
-                        .unwrap_or(&empty_serde_array)
-                        .as_array()
-                        .unwrap_or(&empty_serde_object_array)
-                        .first()
-                        .and_then(|x| x.get("navigationEndpoint"))
-                        .and_then(|x| x.get("commandMetadata"))
-                        .and_then(|x| x.get("webCommandMetadata"))
-                        .and_then(|x| x.get("url"))
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("");
-                }
+                    .map(|x| {
+                        x["navigationEndpoint"]["commandMetadata"]["webCommandMetadata"]["url"]
+                            .clone()
+                    })
+                    .unwrap_or_default();
 
                 let mut category = "";
                 let mut category_url = "";
@@ -489,26 +414,15 @@ pub fn get_media(info: &Value) -> Option<Value> {
                 "category: {category},
                 "category_url": {category_url},
                 "#,
-                    title = title,
-                    title_content = get_text(contents).as_str().unwrap_or(""),
-                    title_url = title_url,
-                    category = category,
-                    category_url = category_url,
+                    title_content = get_text(&contents).as_str().unwrap_or(""),
                 );
 
-                return_object = from_str(data.as_str()).unwrap_or(json!({}));
-            } else if row.get("richMetadataRowRenderer").is_some() {
-                let contents = row
-                    .get("richMetadataRowRenderer")
-                    .and_then(|x| x.get("contents"))
-                    .and_then(|x| x.as_array())
-                    .unwrap_or(&empty_serde_object_array);
+                return_object = from_str(data.as_str()).unwrap_or_default();
+            } else if let Some(row) = row.get("richMetadataRowRenderer") {
+                let contents = row["contents"].as_array().cloned().unwrap_or_default();
 
                 let box_art = contents.iter().filter(|x| {
-                    x.get("richMetadataRenderer")
-                        .and_then(|c| c.get("style"))
-                        .and_then(|c| c.as_str())
-                        .unwrap_or("")
+                    x["richMetadataRenderer"]["style"].as_str().unwrap_or("")
                         == "RICH_METADATA_RENDERER_STYLE_BOX_ART"
                 });
 
@@ -516,18 +430,14 @@ pub fn get_media(info: &Value) -> Option<Value> {
                 let mut media_type = "type";
                 let mut media_type_title = "";
                 let mut media_type_url = "";
-                let mut media_thumbnails = &empty_serde_array;
+                let mut media_thumbnails = json!([]);
 
                 for box_art_value in box_art {
-                    let meta = box_art_value
-                        .get("richMetadataRenderer")
-                        .unwrap_or(&empty_serde_object);
-
-                    media_year = get_text(meta.get("subtitle").unwrap_or(&empty_serde_object))
+                    media_year = get_text(&box_art_value["richMetadataRenderer"]["subtitle"])
                         .as_str()
                         .unwrap_or("");
 
-                    media_type = get_text(meta.get("callToAction").unwrap_or(&empty_serde_object))
+                    media_type = get_text(&box_art_value["richMetadataRenderer"]["callToAction"])
                         .as_str()
                         .unwrap_or("type")
                         .split(' ')
@@ -535,28 +445,21 @@ pub fn get_media(info: &Value) -> Option<Value> {
                         .get(1)
                         .unwrap_or(&"type");
 
-                    media_type_title = get_text(meta.get("title").unwrap_or(&empty_serde_object))
+                    media_type_title = get_text(&box_art_value["richMetadataRenderer"]["title"])
                         .as_str()
                         .unwrap_or("");
 
-                    media_type_url = meta
-                        .get("endpoint")
-                        .and_then(|x| x.get("commandMetadata"))
-                        .and_then(|x| x.get("webCommandMetadata"))
-                        .and_then(|x| x.get("url"))
-                        .and_then(|x| x.as_str())
+                    media_type_url = box_art_value["richMetadataRenderer"]["endpoint"]
+                        ["commandMetadata"]["webCommandMetadata"]["url"]
+                        .as_str()
                         .unwrap_or("");
-                    media_thumbnails = meta
-                        .get("thumbnail")
-                        .and_then(|x| x.get("thumbnails"))
-                        .unwrap_or(&empty_serde_array);
+
+                    media_thumbnails =
+                        box_art_value["richMetadataRenderer"]["thumbnail"]["thumbnails"].clone()
                 }
 
                 let topic = contents.iter().filter(|x| {
-                    x.get("richMetadataRenderer")
-                        .and_then(|x| x.get("style"))
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
+                    x["richMetadataRenderer"]["style"].as_str().unwrap_or("")
                         == "RICH_METADATA_RENDERER_STYLE_TOPIC"
                 });
 
@@ -564,20 +467,13 @@ pub fn get_media(info: &Value) -> Option<Value> {
                 let mut category_url = "";
 
                 for topic_value in topic {
-                    let meta = topic_value
-                        .get("richMetadataRenderer")
-                        .unwrap_or(&empty_serde_object);
-
-                    category = get_text(meta.get("title").unwrap_or(&empty_serde_object))
+                    category = get_text(&topic_value["richMetadataRenderer"]["title"])
                         .as_str()
                         .unwrap_or("");
 
-                    category_url = meta
-                        .get("endpoint")
-                        .and_then(|x| x.get("commandMetadata"))
-                        .and_then(|x| x.get("webCommandMetadata"))
-                        .and_then(|x| x.get("url"))
-                        .and_then(|x| x.as_str())
+                    category_url = topic_value["richMetadataRenderer"]["endpoint"]
+                        ["commandMetadata"]["webCommandMetadata"]["url"]
+                        .as_str()
                         .unwrap_or("");
                 }
 
@@ -590,43 +486,31 @@ pub fn get_media(info: &Value) -> Option<Value> {
                     "category: {category},
                     "category_url": {category_url},
                     "#,
-                    media_year = media_year,
-                    media_type = media_type,
-                    media_type_title = media_type_title,
-                    media_type_url = media_type_url,
-                    media_thumbnails = media_thumbnails,
-                    category = category,
-                    category_url = category_url,
                 );
 
-                return_object = from_str(data.as_str()).unwrap_or(json!({}));
+                return_object = from_str(data.as_str()).unwrap_or_default();
             }
         }
 
-        Some(return_object)
+        return_object
     } else {
-        Some(json!({}))
+        None
     };
 
     json_result
 }
 
 pub fn get_author(initial_response: &Value, player_response: &PlayerResponse) -> Option<Author> {
-    let serde_empty_object = json!({});
-    let empty_serde_object_array: Vec<Value> = vec![];
-
     let mut results: Vec<Value> = vec![];
 
     let mut results_closure = || -> Result<(), &str> {
-        results = initial_response
-            .as_object()
-            .and_then(|x| x.get("contents"))
-            .and_then(|x| x.get("twoColumnWatchNextResults"))
-            .and_then(|x| x.get("results"))
-            .and_then(|x| x.get("results"))
-            .and_then(|x| x.get("contents"))
-            .and_then(|x| Some(x.as_array()?.to_vec()))
-            .unwrap_or_default();
+        results = initial_response["contents"]["twoColumnWatchNextResults"]["results"]["results"]
+            ["contents"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .to_vec();
+
         Ok(())
     };
 
@@ -636,37 +520,22 @@ pub fn get_author(initial_response: &Value, player_response: &PlayerResponse) ->
 
     let v_position = results
         .iter()
-        .position(|x| {
-            let video_owner_renderer_index = x
-                .as_object()
-                .and_then(|x| x.get("videoSecondaryInfoRenderer"))
-                .and_then(|x| x.get("owner"))
-                .and_then(|x| x.get("videoOwnerRenderer"));
-            video_owner_renderer_index.unwrap_or(&Value::Null) != &Value::Null
-        })
+        .position(|x| !x["videoSecondaryInfoRenderer"]["owner"]["videoOwnerRenderer"].is_null())
         .unwrap_or(usize::MAX);
 
     // match v_position
-    let v = results.get(v_position).unwrap_or(&serde_empty_object);
+    let v = results.get(v_position).cloned().unwrap_or_default();
 
-    let video_ownder_renderer = v
-        .get("videoSecondaryInfoRenderer")
-        .and_then(|x| x.get("owner"))
-        .and_then(|x| x.get("videoOwnerRenderer"))
-        .unwrap_or(&serde_empty_object);
+    let video_ownder_renderer =
+        v["videoSecondaryInfoRenderer"]["owner"]["videoOwnerRenderer"].clone();
 
-    let channel_id = video_ownder_renderer
-        .get("navigationEndpoint")
-        .and_then(|x| x.get("browseEndpoint"))
-        .and_then(|x| x.get("browseId"))
-        .and_then(|x| x.as_str())
+    let channel_id = video_ownder_renderer["navigationEndpoint"]["browseEndpoint"]["browseId"]
+        .as_str()
         .unwrap_or("");
-    let thumbnails = video_ownder_renderer
-        .get("thumbnail")
-        .and_then(|x| x.get("thumbnails"))
-        .and_then(|x| x.as_array())
-        .unwrap_or(&empty_serde_object_array)
-        .clone()
+    let thumbnails = video_ownder_renderer["thumbnail"]["thumbnails"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
         .iter()
         .map(|x| Thumbnail {
             width: x
@@ -689,28 +558,15 @@ pub fn get_author(initial_response: &Value, player_response: &PlayerResponse) ->
                     }
                 })
                 .unwrap_or(0i64) as u64,
-            url: x
-                .get("url")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string(),
+            url: x["url"].as_str().unwrap_or("").to_string(),
         })
         .collect::<Vec<Thumbnail>>();
-    let zero_viewer = json!("0");
     let subscriber_count = parse_abbreviated_number(
-        get_text(
-            video_ownder_renderer
-                .get("subscriberCountText")
-                .unwrap_or(&zero_viewer),
-        )
-        .as_str()
-        .unwrap_or("0"),
+        get_text(&video_ownder_renderer["subscriberCountText"])
+            .as_str()
+            .unwrap_or("0"),
     );
-    let verified = is_verified(
-        video_ownder_renderer
-            .get("badges")
-            .unwrap_or(&serde_empty_object),
-    );
+    let verified = is_verified(&video_ownder_renderer["badges"]);
     let video_details = player_response
         .micro_format
         .as_ref()
@@ -776,25 +632,17 @@ pub fn get_author(initial_response: &Value, player_response: &PlayerResponse) ->
         },
         thumbnails,
         verified,
-        subscriber_count: subscriber_count as i32,
+        subscriber_count: subscriber_count as u64,
     })
 }
 
 pub fn get_likes(info: &Value) -> u64 {
-    let serde_empty_object = json!({});
-    let empty_serde_object_array = vec![json!({})];
-
-    let contents = info
-        .get("contents")
-        .and_then(|x| x.get("twoColumnWatchNextResults"))
-        .and_then(|x| x.get("results"))
-        .and_then(|x| x.get("results"))
-        .and_then(|x| x.get("contents"))
-        .unwrap_or(&serde_empty_object);
+    let contents =
+        info["contents"]["twoColumnWatchNextResults"]["results"]["results"]["contents"].clone();
 
     let video = contents
         .as_array()
-        .and_then(|x| {
+        .map(|x| {
             let info_renderer_position = x
                 .iter()
                 .position(|c| c.get("videoPrimaryInfoRenderer").is_some())
@@ -802,56 +650,40 @@ pub fn get_likes(info: &Value) -> u64 {
 
             contents
                 .as_array()
-                .map(|c| c.get(info_renderer_position))
-                .unwrap_or(Some(&serde_empty_object))
+                .and_then(|c| c.get(info_renderer_position).cloned())
+                .unwrap_or_default()
         })
-        .unwrap_or(&serde_empty_object);
+        .unwrap_or_default();
 
-    let buttons = video
-        .get("videoPrimaryInfoRenderer")
-        .and_then(|x| x.get("videoActions"))
-        .and_then(|x| x.get("menuRenderer"))
-        .and_then(|x| x.get("topLevelButtons"))
-        .and_then(|x| x.as_array())
-        .unwrap_or(&empty_serde_object_array);
+    let buttons = video["videoPrimaryInfoRenderer"]["videoActions"]["menuRenderer"]
+        ["topLevelButtons"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
 
     let like_index = buttons
         .iter()
         .position(|x| x.get("segmentedLikeDislikeButtonViewModel").is_some())
         .unwrap_or(usize::MAX);
 
-    let like = buttons.get(like_index).unwrap_or(&serde_empty_object);
+    let like = buttons.get(like_index).cloned().unwrap_or_default();
 
-    let count = like
-        .get("segmentedLikeDislikeButtonViewModel")
-        .and_then(|x| x.get("likeButtonViewModel"))
-        .and_then(|x| x.get("likeButtonViewModel"))
-        .and_then(|x| x.get("toggleButtonViewModel"))
-        .and_then(|x| x.get("toggleButtonViewModel"))
-        .and_then(|x| x.get("defaultButtonViewModel"))
-        .and_then(|x| x.get("buttonViewModel"))
-        .and_then(|x| x.get("title"))
-        .and_then(|x| x.as_str())
+    let count = like["segmentedLikeDislikeButtonViewModel"]["likeButtonViewModel"]
+        ["likeButtonViewModel"]["toggleButtonViewModel"]["toggleButtonViewModel"]
+        ["defaultButtonViewModel"]["buttonViewModel"]["title"]
+        .as_str()
         .unwrap_or("0");
 
     parse_abbreviated_number(count) as u64
 }
 
 pub fn get_dislikes(info: &Value) -> u64 {
-    let serde_empty_object = json!({});
-    let empty_serde_object_array = vec![json!({})];
-
-    let contents = info
-        .get("contents")
-        .and_then(|x| x.get("twoColumnWatchNextResults"))
-        .and_then(|x| x.get("results"))
-        .and_then(|x| x.get("results"))
-        .and_then(|x| x.get("contents"))
-        .unwrap_or(&serde_empty_object);
+    let contents =
+        info["contents"]["twoColumnWatchNextResults"]["results"]["results"]["contents"].clone();
 
     let video = contents
         .as_array()
-        .and_then(|x| {
+        .map(|x| {
             let info_renderer_position = x
                 .iter()
                 .position(|c| c.get("videoPrimaryInfoRenderer").is_some())
@@ -859,36 +691,28 @@ pub fn get_dislikes(info: &Value) -> u64 {
 
             contents
                 .as_array()
-                .map(|c| c.get(info_renderer_position))
-                .unwrap_or(Some(&serde_empty_object))
+                .and_then(|c| c.get(info_renderer_position).cloned())
+                .unwrap_or_default()
         })
-        .unwrap_or(&serde_empty_object);
+        .unwrap_or_default();
 
-    let buttons = video
-        .get("videoPrimaryInfoRenderer")
-        .and_then(|x| x.get("videoActions"))
-        .and_then(|x| x.get("menuRenderer"))
-        .and_then(|x| x.get("topLevelButtons"))
-        .and_then(|x| x.as_array())
-        .unwrap_or(&empty_serde_object_array);
+    let buttons = video["videoPrimaryInfoRenderer"]["videoActions"]["menuRenderer"]
+        ["topLevelButtons"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
 
     let dislike_index = buttons
         .iter()
         .position(|x| x.get("segmentedLikeDislikeButtonViewModel").is_some())
         .unwrap_or(usize::MAX);
 
-    let like = buttons.get(dislike_index).unwrap_or(&serde_empty_object);
+    let dislike = buttons.get(dislike_index).cloned().unwrap_or_default();
 
-    let count = like
-        .get("segmentedLikeDislikeButtonViewModel")
-        .and_then(|x| x.get("dislikeButtonViewModel"))
-        .and_then(|x| x.get("dislikeButtonViewModel"))
-        .and_then(|x| x.get("toggleButtonViewModel"))
-        .and_then(|x| x.get("toggleButtonViewModel"))
-        .and_then(|x| x.get("defaultButtonViewModel"))
-        .and_then(|x| x.get("buttonViewModel"))
-        .and_then(|x| x.get("title"))
-        .and_then(|x| x.as_str())
+    let count = dislike["segmentedLikeDislikeButtonViewModel"]["dislikeButtonViewModel"]
+        ["dislikeButtonViewModel"]["toggleButtonViewModel"]["toggleButtonViewModel"]
+        ["defaultButtonViewModel"]["buttonViewModel"]["title"]
+        .as_str()
         .unwrap_or("0");
 
     parse_abbreviated_number(count) as u64
@@ -976,40 +800,25 @@ pub fn get_storyboards(info: &PlayerResponse) -> Option<Vec<StoryBoard>> {
 }
 
 pub fn get_chapters(info: &Value) -> Option<Vec<Chapter>> {
-    let serde_empty_object = json!({});
-    let empty_serde_object_array = vec![json!({})];
-
-    let player_overlay_renderer = info
-        .get("playerOverlays")
-        .and_then(|x| x.get("playerOverlayRenderer"))
-        .unwrap_or(&serde_empty_object);
-
-    let player_bar = player_overlay_renderer
-        .get("decoratedPlayerBarRenderer")
-        .and_then(|x| x.get("decoratedPlayerBarRenderer"))
-        .and_then(|x| x.get("playerBar"))
-        .unwrap_or(&serde_empty_object);
-
-    let markers_map = player_bar
-        .get("multiMarkersPlayerBarRenderer")
-        .and_then(|x| x.get("markersMap"))
-        .and_then(|x| x.as_array())
-        .unwrap_or(&empty_serde_object_array);
+    let markers_map = info["playerOverlays"]["playerOverlayRenderer"]["decoratedPlayerBarRenderer"]
+        ["decoratedPlayerBarRenderer"]["playerBar"]["multiMarkersPlayerBarRenderer"]["markersMap"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
 
     let marker_index = markers_map
         .iter()
         .position(|x| {
-            x.get("value").is_some()
-                && x.get("value")
-                    .map(|c| c.get("chapters").map(|d| d.is_array()).unwrap_or(false))
-                    .unwrap_or(false)
+            x.get("value")
+                .map(|c| c.get("chapters").map(|d| d.is_array()).unwrap_or(false))
+                .unwrap_or(false)
         })
         .unwrap_or(usize::MAX);
 
     let marker = markers_map
         .get(marker_index)
-        .and_then(|x| x.as_object())
-        .unwrap_or(serde_empty_object.as_object().unwrap());
+        .map(|x| x.as_object().cloned().unwrap_or_default())
+        .unwrap_or_default();
 
     if marker.is_empty() {
         return Some(vec![]);
@@ -1018,26 +827,20 @@ pub fn get_chapters(info: &Value) -> Option<Vec<Chapter>> {
     let chapters = marker
         .get("value")
         .and_then(|x| x.get("chapters"))
-        .and_then(|x| x.as_array())
-        .unwrap_or(&empty_serde_object_array);
+        .and_then(|x| x.as_array().cloned())
+        .unwrap_or_default();
 
     Some(
         chapters
             .iter()
             .map(|x| Chapter {
-                title: get_text(
-                    x.get("chapterRenderer")
-                        .and_then(|x| x.get("title"))
-                        .unwrap_or(&serde_empty_object),
-                )
-                .as_str()
-                .unwrap_or("")
-                .to_string(),
-                start_time: (x
-                    .get("chapterRenderer")
-                    .and_then(|x| x.get("timeRangeStartMillis"))
-                    .and_then(|x| x.as_f64())
-                    .unwrap_or(0f64)
+                title: get_text(&x["chapterRenderer"]["title"])
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string(),
+                start_time: (x["chapterRenderer"]["timeRangeStartMillis"]
+                    .as_f64()
+                    .unwrap_or_default()
                     / 1000f64) as i32,
             })
             .collect::<Vec<Chapter>>(),

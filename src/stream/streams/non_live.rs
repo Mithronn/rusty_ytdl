@@ -208,7 +208,9 @@ impl Stream for NonLiveStream {
             .headers(headers)
             .send()
             .await
-            .map_err(VideoError::ReqwestMiddleware)?;
+            .map_err(VideoError::ReqwestMiddleware)?
+            .error_for_status()
+            .map_err(VideoError::Reqwest)?;
 
         let mut buf: BytesMut = BytesMut::new();
 

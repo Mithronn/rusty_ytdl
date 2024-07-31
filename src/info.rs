@@ -148,10 +148,11 @@ impl Video {
                 )
                 .as_str(),
             )
-            .unwrap();
+            .unwrap_or_default();
 
             let initial_response =
-                serde_json::from_str::<serde_json::Value>(initial_response_string.trim()).unwrap();
+                serde_json::from_str::<serde_json::Value>(initial_response_string.trim())
+                    .unwrap_or_default();
 
             (player_response, initial_response)
         };
@@ -170,7 +171,7 @@ impl Video {
             let embed_ytconfig = self.get_embeded_ytconfig(&response).await?;
 
             let player_response_new =
-                serde_json::from_str::<PlayerResponse>(&embed_ytconfig).unwrap();
+                serde_json::from_str::<PlayerResponse>(&embed_ytconfig).unwrap_or_default();
 
             player_response.streaming_data = player_response_new.streaming_data;
             player_response.storyboards = player_response_new.storyboards;
@@ -183,7 +184,7 @@ impl Video {
         let video_details = clean_video_details(
             &initial_response,
             &player_response,
-            get_media(&initial_response).unwrap(),
+            get_media(&initial_response).unwrap_or_default(),
             self.video_id.clone(),
         );
 
@@ -203,7 +204,11 @@ impl Video {
             formats: {
                 parse_video_formats(
                     &player_response,
-                    get_functions(get_html5player(response.as_str()).unwrap(), client).await?,
+                    get_functions(
+                        get_html5player(response.as_str()).unwrap_or_default(),
+                        client,
+                    )
+                    .await?,
                 )
                 .unwrap_or_default()
             },
@@ -551,16 +556,17 @@ async fn get_m3u8(
 
     let body = get_html(client, &url, None).await?;
 
-    let http_regex = regex::Regex::new(r"^https?://").unwrap();
-    let itag_regex = regex::Regex::new(r"/itag/(\d+)/").unwrap();
+    static HTTP_REGEX: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"^https?://").unwrap());
+    static ITAG_REGEX: Lazy<regex::Regex> =
+        Lazy::new(|| regex::Regex::new(r"/itag/(\d+)/").unwrap());
 
     let itag_and_url = body
         .split('\n')
-        .filter(|x| http_regex.is_match(x) && itag_regex.is_match(x));
+        .filter(|x| HTTP_REGEX.is_match(x) && ITAG_REGEX.is_match(x));
 
     let itag_and_url: Vec<(String, String)> = itag_and_url
         .map(|line| {
-            let itag = itag_regex
+            let itag = ITAG_REGEX
                 .captures(line)
                 .expect("IMPOSSIBLE")
                 .get(1)

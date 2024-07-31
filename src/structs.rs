@@ -494,7 +494,7 @@ pub struct Author {
     pub thumbnails: Vec<Thumbnail>,
     pub verified: bool,
     #[serde(rename = "subscriberCount")]
-    pub subscriber_count: i32,
+    pub subscriber_count: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -776,7 +776,7 @@ impl FFmpegArgs {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct PlayerResponse {
     #[serde(rename = "streamingData")]
     pub streaming_data: Option<StreamingData>,
