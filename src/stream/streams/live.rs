@@ -217,18 +217,15 @@ impl Stream for LiveStream {
 
         let headers = DEFAULT_HEADERS.clone();
 
-        let response = self
+        let mut response = self
             .client
             .get(first_segment.0.url().as_str())
             .headers(headers)
             .send()
-            .await;
-
-        if response.is_err() {
-            return Err(VideoError::ReqwestMiddleware(response.err().unwrap()));
-        }
-
-        let mut response = response.expect("IMPOSSIBLE");
+            .await
+            .map_err(VideoError::ReqwestMiddleware)?
+            .error_for_status()
+            .map_err(VideoError::Reqwest)?;
 
         let mut buf: BytesMut = BytesMut::new();
 

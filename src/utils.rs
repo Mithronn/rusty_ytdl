@@ -1081,6 +1081,28 @@ pub fn extract_functions(body: String) -> Vec<(String, String)> {
             function_name = between(body.as_str(), left_name.as_str(), "]");
         }
 
+        if function_name.is_empty() {
+            static FUNCTION_REGEX: Lazy<Regex> = Lazy::new(|| {
+                Regex::new(
+                    r"(?xs);\s*(?P<name>[a-zA-Z0-9_$]+)\s*=\s*function\([a-zA-Z0-9_$]+\)\s*\{",
+                )
+                .unwrap()
+            });
+
+            for caps in FUNCTION_REGEX.captures_iter(body.as_str()) {
+                let name = caps.name("name").unwrap().as_str();
+
+                let start_pos = caps.get(0).unwrap().end();
+                if let Some(end_pos) = body[start_pos..].find("};") {
+                    let function_body = &body[start_pos..start_pos + end_pos];
+
+                    if function_body.contains("enhanced_except_") {
+                        function_name = name;
+                    }
+                }
+            }
+        }
+
         // println!("ncode function name: {}", function_name);
 
         if !function_name.is_empty() {
