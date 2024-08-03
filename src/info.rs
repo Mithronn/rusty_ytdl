@@ -18,7 +18,9 @@ use crate::{
     constants::BASE_URL,
     info_extras::{get_media, get_related_videos},
     stream::{NonLiveStream, NonLiveStreamOptions, Stream},
-    structs::{PlayerResponse, VideoError, VideoInfo, VideoOptions, YTConfig},
+    structs::{
+        CustomRetryableStrategy, PlayerResponse, VideoError, VideoInfo, VideoOptions, YTConfig,
+    },
     utils::{
         between, choose_format, clean_video_details, get_functions, get_html, get_html5player,
         get_random_v6_ip, get_video_id, get_ytconfig, is_age_restricted_from_html,
@@ -49,10 +51,13 @@ impl Video {
         let client = Client::builder().build().map_err(VideoError::Reqwest)?;
 
         let retry_policy = ExponentialBackoff::builder()
-            .retry_bounds(Duration::from_millis(500), Duration::from_millis(10000))
+            .retry_bounds(Duration::from_millis(1000), Duration::from_millis(30000))
             .build_with_max_retries(3);
         let client = ClientBuilder::new(client)
-            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+            .with(RetryTransientMiddleware::new_with_policy_and_strategy(
+                retry_policy,
+                CustomRetryableStrategy,
+            ))
             .build();
 
         Ok(Self {
@@ -98,10 +103,13 @@ impl Video {
         };
 
         let retry_policy = ExponentialBackoff::builder()
-            .retry_bounds(Duration::from_millis(500), Duration::from_millis(10000))
+            .retry_bounds(Duration::from_millis(1000), Duration::from_millis(30000))
             .build_with_max_retries(3);
         let client = ClientBuilder::new(client)
-            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+            .with(RetryTransientMiddleware::new_with_policy_and_strategy(
+                retry_policy,
+                CustomRetryableStrategy,
+            ))
             .build();
 
         Ok(Self {

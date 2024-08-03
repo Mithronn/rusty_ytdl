@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use crate::constants::DEFAULT_HEADERS;
 use crate::stream::streams::Stream;
-use crate::structs::VideoError;
+use crate::structs::{CustomRetryableStrategy, VideoError};
 
 #[cfg(feature = "ffmpeg")]
 use crate::structs::FFmpegArgs;
@@ -59,14 +59,17 @@ impl NonLiveStream {
 
             let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
                 .retry_bounds(
-                    std::time::Duration::from_millis(500),
-                    std::time::Duration::from_millis(10000),
+                    std::time::Duration::from_millis(1000),
+                    std::time::Duration::from_millis(30000),
                 )
                 .build_with_max_retries(3);
             reqwest_middleware::ClientBuilder::new(client)
-                .with(reqwest_retry::RetryTransientMiddleware::new_with_policy(
-                    retry_policy,
-                ))
+                .with(
+                    reqwest_retry::RetryTransientMiddleware::new_with_policy_and_strategy(
+                        retry_policy,
+                        CustomRetryableStrategy,
+                    ),
+                )
                 .build()
         };
 

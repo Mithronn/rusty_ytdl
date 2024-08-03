@@ -993,3 +993,36 @@ pub struct YTConfig {
     #[serde(rename = "STS")]
     pub sts: Option<u64>,
 }
+
+pub struct CustomRetryableStrategy;
+
+impl reqwest_retry::RetryableStrategy for CustomRetryableStrategy {
+    fn handle(
+        &self,
+        res: &reqwest_middleware::Result<reqwest::Response>,
+    ) -> Option<reqwest_retry::Retryable> {
+        match res {
+            // retry if 201
+            Ok(success) => custom_on_request_success(success),
+            Err(error) => reqwest_retry::default_on_request_failure(error),
+        }
+    }
+}
+
+/// Custom request success retry strategy.
+///
+/// Will only retry if:
+/// * The status was 5XX (server error)
+/// * The status was 4XX (client error)
+///
+/// Note that success here means that the request finished without interruption, not that it was logically OK.
+fn custom_on_request_success(success: &reqwest::Response) -> Option<reqwest_retry::Retryable> {
+    let status = success.status();
+    if status.is_server_error() || status.is_client_error() {
+        Some(reqwest_retry::Retryable::Transient)
+    } else if status.is_success() {
+        None
+    } else {
+        Some(reqwest_retry::Retryable::Fatal)
+    }
+}
