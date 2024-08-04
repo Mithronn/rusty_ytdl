@@ -226,7 +226,7 @@ pub struct RequestOptions {
     ///     // Allow 5 retries per chunk.
     ///     let video_options = VideoOptions {
     ///          request_options: RequestOptions {
-    ///               override_max_retries: Some(5),
+    ///               max_retries: Some(5),
     ///                ..Default::default()
     ///          },
     ///          ..Default::default()
