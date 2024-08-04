@@ -232,7 +232,7 @@ pub struct RequestOptions {
     ///          ..Default::default()
     ///     };
     /// ```
-    pub override_max_retries: Option<u32>,
+    pub max_retries: Option<u32>,
 }
 
 #[derive(thiserror::Error, Debug)]

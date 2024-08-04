@@ -102,7 +102,7 @@ impl Video {
             }
         };
 
-        let max_retries = options.request_options.override_max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
+        let max_retries = options.request_options.max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
 
         let retry_policy = ExponentialBackoff::builder()
             .retry_bounds(Duration::from_millis(1000), Duration::from_millis(30000))
