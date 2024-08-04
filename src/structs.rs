@@ -219,7 +219,7 @@ pub struct RequestOptions {
     /// ```
     pub ipv6_block: Option<String>,
     /// Override the default number of retries to allow per web request (ie, per chunk downloaded)
-    /// Default is [`crate::constants::DEFAULT_RETRIES`].
+    /// Default is [`crate::constants::DEFAULT_MAX_RETRIES`].
     ///
     /// # Example
     /// ```ignore
