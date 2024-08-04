@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
-use crate::constants::DEFAULT_HEADERS;
+use crate::constants::{DEFAULT_HEADERS, DEFAULT_MAX_RETRIES};
 use crate::stream::streams::Stream;
 use crate::structs::{CustomRetryableStrategy, VideoError};
 
@@ -62,7 +62,7 @@ impl NonLiveStream {
                     std::time::Duration::from_millis(1000),
                     std::time::Duration::from_millis(30000),
                 )
-                .build_with_max_retries(3);
+                .build_with_max_retries(DEFAULT_MAX_RETRIES);
             reqwest_middleware::ClientBuilder::new(client)
                 .with(
                     reqwest_retry::RetryTransientMiddleware::new_with_policy_and_strategy(
