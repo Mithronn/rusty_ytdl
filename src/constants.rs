@@ -1235,5 +1235,5 @@ pub static FORMATS: Lazy<HashMap<&str, StaticFormat>> = Lazy::new(|| {
     ])
 });
 
-/// Default number of retries for a web reqwest.
-pub const DEFAULT_RETRIES: u32 = 3;
+/// Default max number of retries for a web reqwest.
+pub const DEFAULT_MAX_RETRIES: u32 = 3;

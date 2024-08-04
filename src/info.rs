@@ -15,7 +15,7 @@ use crate::stream::{LiveStream, LiveStreamOptions};
 use crate::structs::FFmpegArgs;
 
 use crate::{
-    constants::{BASE_URL, DEFAULT_RETRIES},
+    constants::{BASE_URL, DEFAULT_MAX_RETRIES},
     info_extras::{get_media, get_related_videos},
     stream::{NonLiveStream, NonLiveStreamOptions, Stream},
     structs::{
@@ -52,7 +52,7 @@ impl Video {
 
         let retry_policy = ExponentialBackoff::builder()
             .retry_bounds(Duration::from_millis(1000), Duration::from_millis(30000))
-            .build_with_max_retries(DEFAULT_RETRIES);
+            .build_with_max_retries(DEFAULT_MAX_RETRIES);
         let client = ClientBuilder::new(client)
             .with(RetryTransientMiddleware::new_with_policy_and_strategy(
                 retry_policy,
@@ -102,7 +102,7 @@ impl Video {
             }
         };
 
-        let max_retries = options.request_options.override_max_retries.unwrap_or(DEFAULT_RETRIES);
+        let max_retries = options.request_options.override_max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
 
         let retry_policy = ExponentialBackoff::builder()
             .retry_bounds(Duration::from_millis(1000), Duration::from_millis(30000))
