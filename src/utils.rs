@@ -938,16 +938,34 @@ pub fn is_not_yet_broadcasted(player_response: &PlayerResponse) -> bool {
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn is_play_error(player_response: &PlayerResponse, statuses: Vec<&str>) -> bool {
-    let playability = player_response
+    let playability_status = player_response
         .playability_status
         .as_ref()
         .and_then(|x| x.status.clone());
 
-    if let Some(playability_some) = playability {
+    if let Some(playability_some) = playability_status {
         return statuses.contains(&playability_some.as_str());
     }
 
     false
+}
+
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
+pub fn is_player_response_error(
+    player_response: &PlayerResponse,
+    reasons: &[&str],
+) -> Option<String> {
+    if let Some(reason) = player_response
+        .playability_status
+        .as_ref()
+        .and_then(|status| status.reason.as_deref())
+    {
+        if reasons.contains(&reason) {
+            return Some(reason.to_string());
+        }
+    }
+
+    None
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]

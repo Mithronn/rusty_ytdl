@@ -248,6 +248,9 @@ pub enum VideoError {
     /// Video is private
     #[error("Video is private")]
     VideoIsPrivate,
+    /// Video player response errors
+    #[error("Player Response Error: {0}")]
+    VideoPlayerResponseError(String),
     /// Reqwest error
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
@@ -995,6 +998,7 @@ pub struct StreamingDataFormatColorInfo {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlayabilityStatus {
     pub status: Option<String>,
+    pub reason: Option<String>,
     #[serde(rename = "errorScreen")]
     pub error_screen: Option<ErrorScreen>,
 }
