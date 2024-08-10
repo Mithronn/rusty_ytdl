@@ -15,25 +15,22 @@ use crate::stream::{LiveStream, LiveStreamOptions};
 use crate::structs::FFmpegArgs;
 
 use crate::{
-    constants::{BASE_URL, DEFAULT_MAX_RETRIES},
+    constants::{BASE_URL, DEFAULT_DL_CHUNK_SIZE, DEFAULT_MAX_RETRIES, INNERTUBE_CLIENT},
     info_extras::{get_media, get_related_videos},
     stream::{NonLiveStream, NonLiveStreamOptions, Stream},
     structs::{
         CustomRetryableStrategy, PlayerResponse, VideoError, VideoInfo, VideoOptions, YTConfig,
     },
     utils::{
-        between, choose_format, clean_video_details, get_functions, get_html, get_html5player,
-        get_random_v6_ip, get_video_id, get_ytconfig, is_age_restricted_from_html,
+        between, check_experiments, choose_format, clean_video_details, get_functions, get_html,
+        get_html5player, get_random_v6_ip, get_video_id, get_ytconfig, is_age_restricted_from_html,
         is_not_yet_broadcasted, is_play_error, is_private_video, is_rental,
         parse_live_video_formats, parse_video_formats, sort_formats,
     },
 };
 
-// 10485760 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
-pub(crate) const DEFAULT_DL_CHUNK_SIZE: u64 = 10485760;
-
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
-#[display(fmt = "Video({video_id})")]
+#[display("Video({video_id})")]
 #[derivative(Debug, PartialEq, Eq)]
 pub struct Video {
     video_id: String,
@@ -102,7 +99,10 @@ impl Video {
             }
         };
 
-        let max_retries = options.request_options.max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
+        let max_retries = options
+            .request_options
+            .max_retries
+            .unwrap_or(DEFAULT_MAX_RETRIES);
 
         let retry_policy = ExponentialBackoff::builder()
             .retry_bounds(Duration::from_millis(1000), Duration::from_millis(30000))
@@ -177,8 +177,31 @@ impl Video {
             return Err(VideoError::VideoIsPrivate);
         }
 
+        // POToken experiment detected fallback to ios client (Webpage contains broken formats)
+        if check_experiments(&response) {
+            let ios_ytconfig = self
+                .get_player_ytconfig(
+                    &response,
+                    INNERTUBE_CLIENT.get("ios").cloned().unwrap_or_default(),
+                )
+                .await?;
+
+            let player_response_new =
+                serde_json::from_str::<PlayerResponse>(&ios_ytconfig).unwrap_or_default();
+
+            player_response.streaming_data = player_response_new.streaming_data;
+        }
+
         if is_age_restricted {
-            let embed_ytconfig = self.get_embeded_ytconfig(&response).await?;
+            let embed_ytconfig = self
+                .get_player_ytconfig(
+                    &response,
+                    INNERTUBE_CLIENT
+                        .get("tv_embedded")
+                        .cloned()
+                        .unwrap_or_default(),
+                )
+                .await?;
 
             let player_response_new =
                 serde_json::from_str::<PlayerResponse>(&embed_ytconfig).unwrap_or_default();
@@ -484,39 +507,36 @@ impl Video {
     }
 
     #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-    async fn get_embeded_ytconfig(&self, html: &str) -> Result<String, VideoError> {
+    async fn get_player_ytconfig(
+        &self,
+        html: &str,
+        configs: (&str, &str, &str),
+    ) -> Result<String, VideoError> {
+        use std::str::FromStr;
+
         let ytcfg = get_ytconfig(html)?;
 
-        // This client can access age restricted videos (unless the uploader has disabled the 'allow embedding' option)
-        // See: https://github.com/yt-dlp/yt-dlp/blob/28d485714fef88937c82635438afba5db81f9089/yt_dlp/extractor/youtube.py#L231
-        let query = serde_json::json!({
-            "context": {
-                "client": {
-                    "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-                    "clientVersion": "2.0",
-                    "hl": "en",
-                    "clientScreen": "EMBED",
-                },
-                "thirdParty": {
-                    "embedUrl": "https://google.com",
-                },
-            },
-            "playbackContext": {
-                "contentPlaybackContext": {
-                    "signatureTimestamp": ytcfg.sts.unwrap_or(0),
-                    "html5Preference": "HTML5_PREF_WANTS",
-                },
-            },
-            "videoId": self.get_video_id(),
-        });
+        let client = configs.2;
+        let sts = ytcfg.sts.unwrap_or(0);
+        let video_id = self.get_video_id();
+
+        let query = serde_json::from_str::<serde_json::Value>(&format!(
+            r#"{{
+            {client}
+            "playbackContext": {{
+                "contentPlaybackContext": {{
+                    "signatureTimestamp": {sts},
+                    "html5Preference": "HTML5_PREF_WANTS"
+                }}
+            }},
+            "videoId": "{video_id}"
+        }}"#
+        ))
+        .unwrap_or_default();
 
         static CONFIGS: Lazy<(HeaderMap, &str)> = Lazy::new(|| {
-            use std::str::FromStr;
-
             (HeaderMap::from_iter([
             (HeaderName::from_str("content-type").unwrap(), HeaderValue::from_str("application/json").unwrap()),
-            (HeaderName::from_str("X-Youtube-Client-Name").unwrap(), HeaderValue::from_str("85").unwrap()),
-            (HeaderName::from_str("X-Youtube-Client-Version").unwrap(), HeaderValue::from_str("2.0").unwrap()),
             (HeaderName::from_str("Origin").unwrap(), HeaderValue::from_str("https://www.youtube.com").unwrap()),
             (HeaderName::from_str("User-Agent").unwrap(), HeaderValue::from_str("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3513.0 Safari/537.36").unwrap()),
             (HeaderName::from_str("Referer").unwrap(), HeaderValue::from_str("https://www.youtube.com/").unwrap()),
@@ -526,10 +546,20 @@ impl Video {
         ]),"AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8")
         });
 
+        let mut headers = CONFIGS.0.clone();
+        headers.insert(
+            HeaderName::from_str("X-Youtube-Client-Version").unwrap(),
+            HeaderValue::from_str(configs.0).unwrap(),
+        );
+        headers.insert(
+            HeaderName::from_str("X-Youtube-Client-Name").unwrap(),
+            HeaderValue::from_str(configs.1).unwrap(),
+        );
+
         let response = self
             .client
             .post("https://www.youtube.com/youtubei/v1/player")
-            .headers(CONFIGS.0.clone())
+            .headers(headers)
             .query(&[("key", CONFIGS.1)])
             .json(&query)
             .send()
@@ -550,15 +580,12 @@ async fn get_m3u8(
     url: &str,
     client: &reqwest_middleware::ClientWithMiddleware,
 ) -> Result<Vec<(String, String)>, VideoError> {
-    let base_url = Url::parse(BASE_URL).expect("BASE_URL corrapt");
-    let base_url_host = base_url.host_str().expect("BASE_URL host corrapt");
+    let base_url = Url::parse(BASE_URL)?;
+    let base_url_host = base_url.host_str();
 
     let url = Url::parse(url)
         .and_then(|mut x| {
-            let set_host_result = x.set_host(Some(base_url_host));
-            if set_host_result.is_err() {
-                return Err(set_host_result.expect_err("How can be posible"));
-            }
+            x.set_host(base_url_host)?;
             Ok(x)
         })
         .map(|x| x.as_str().to_string())
@@ -574,19 +601,12 @@ async fn get_m3u8(
         .split('\n')
         .filter(|x| HTTP_REGEX.is_match(x) && ITAG_REGEX.is_match(x));
 
-    let itag_and_url: Vec<(String, String)> = itag_and_url
-        .map(|line| {
-            let itag = ITAG_REGEX
-                .captures(line)
-                .expect("IMPOSSIBLE")
-                .get(1)
-                .map(|x| x.as_str())
-                .unwrap_or("");
-
-            // println!("itag: {}, url: {}", itag, line);
-            (itag.to_string(), line.to_string())
+    Ok(itag_and_url
+        .filter_map(|line| {
+            ITAG_REGEX.captures(line).and_then(|caps| {
+                caps.get(1)
+                    .map(|itag| (itag.as_str().to_string(), line.to_string()))
+            })
         })
-        .collect();
-
-    Ok(itag_and_url)
+        .collect::<Vec<(String, String)>>())
 }

@@ -46,6 +46,74 @@ pub(crate) static IPV6_REGEX: Lazy<Regex> = Lazy::new(|| {
 pub(crate) static PARSE_INT_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?m)^\s*((\-|\+)?[0-9]+)\s*").unwrap());
 
+// 10485760 -> Default is 10MB to avoid Youtube throttle (Bigger than this value can be throttle by Youtube)
+pub(crate) const DEFAULT_DL_CHUNK_SIZE: u64 = 10485760;
+
+/// Default max number of retries for a web reqwest.
+pub(crate) const DEFAULT_MAX_RETRIES: u32 = 3;
+
+pub(crate) const POTOKEN_EXPERIMENTS: &[&str] = &["51217476", "51217102"];
+
+pub static INNERTUBE_CLIENT: Lazy<HashMap<&str, (&str, &str, &str)>> =
+    // (clientVersion, clientName, json value)
+    Lazy::new(|| {
+        HashMap::from([
+            (
+                "web",
+                (
+                    "2.20240726.00.00",
+                    "1",
+                    r#""context": {
+                        "client": {
+                            "clientName": "WEB",
+                            "clientVersion": "2.20240726.00.00",
+                            "hl": "en"
+                        }
+                    },"#,
+                ),
+            ),
+            (
+                "ios",
+                (
+                    "19.29.1",
+                    "5",
+                    r#""context": {
+                        "client": {
+                            "clientName": "IOS",
+                            "clientVersion": "19.29.1",
+                            "deviceMake": "Apple",
+                            "deviceModel": "iPhone16,2",
+                            "userAgent": "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
+                            "osName": "iPhone",
+                            "osVersion": "17.5.1.21F90",
+                            "hl": "en"
+                        }
+                    },"#,
+                ),
+            ),
+            (
+                // This client can access age restricted videos (unless the uploader has disabled the 'allow embedding' option)
+                // See: https://github.com/yt-dlp/yt-dlp/blob/28d485714fef88937c82635438afba5db81f9089/yt_dlp/extractor/youtube.py#L231
+                "tv_embedded",
+                (
+                    "2.0",
+                    "85",
+                    r#""context": {
+                        "client": {
+                            "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                            "clientVersion": "2.0",
+                            "hl": "en",
+                            "clientScreen": "EMBED"
+                        },
+                        "thirdParty": {
+                            "embedUrl": "https://google.com"
+                        }
+                    },"#,
+                ),
+            ),
+        ])
+    });
+
 pub static FORMATS: Lazy<HashMap<&str, StaticFormat>> = Lazy::new(|| {
     HashMap::from([
         (
@@ -1234,6 +1302,3 @@ pub static FORMATS: Lazy<HashMap<&str, StaticFormat>> = Lazy::new(|| {
         ),
     ])
 });
-
-/// Default max number of retries for a web reqwest.
-pub const DEFAULT_MAX_RETRIES: u32 = 3;

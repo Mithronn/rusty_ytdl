@@ -3,13 +3,12 @@
 async fn ffmpeg_test() {
     #[cfg(feature = "ffmpeg")]
     {
-        use rusty_ytdl::{FFmpegArgs, Video, VideoOptions, VideoQuality, VideoSearchOptions};
+        use rusty_ytdl::{FFmpegArgs, Video, VideoOptions, VideoQuality};
 
         let url = "FZ8BxMU3BYc";
 
         let video_options = VideoOptions {
             quality: VideoQuality::Highest,
-            filter: VideoSearchOptions::VideoAudio,
             ..Default::default()
         };
 

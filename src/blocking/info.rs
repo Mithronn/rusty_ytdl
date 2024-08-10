@@ -4,7 +4,7 @@ use crate::block_async;
 #[cfg(feature = "live")]
 use crate::blocking::stream::LiveStream;
 use crate::blocking::stream::NonLiveStream;
-use crate::info::DEFAULT_DL_CHUNK_SIZE;
+use crate::constants::DEFAULT_DL_CHUNK_SIZE;
 use crate::structs::{VideoError, VideoInfo, VideoOptions};
 use crate::utils::choose_format;
 use crate::Video as AsyncVideo;

@@ -26,7 +26,7 @@ static ALBUM_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(RDC|O)LAK5uy_[a-zA-Z0-9-_]{33}").unwrap());
 
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
-#[display(fmt = "YouTube()")]
+#[display("YouTube()")]
 #[derivative(Debug, PartialEq, Eq)]
 pub struct YouTube {
     #[derivative(PartialEq = "ignore")]
@@ -280,15 +280,20 @@ impl YouTube {
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
 #[derivative(Debug, PartialEq, Eq)]
 pub enum SearchType {
+    #[display("Video")]
     Video,
+    #[display("Channel")]
     Channel,
+    #[display("Playlist")]
     Playlist,
+    #[display("Film")]
     Film,
+    #[display("All")]
     All,
 }
 
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
-#[display(fmt = "SearchOptions()")]
+#[display("SearchOptions(type: {search_type}, limit: {limit}, safe search: {safe_search})")]
 #[derivative(Debug, PartialEq, Eq)]
 pub struct SearchOptions {
     pub limit: u64,

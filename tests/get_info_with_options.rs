@@ -1,12 +1,11 @@
 #[tokio::test]
 async fn get_info_with_options() {
-    use rusty_ytdl::{choose_format, Video, VideoOptions, VideoQuality, VideoSearchOptions};
+    use rusty_ytdl::{choose_format, Video, VideoOptions, VideoQuality};
 
     let url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc"; //"https://www.youtube.com/watch?v=0ThMultL4PY";
 
     let video_options = VideoOptions {
         quality: VideoQuality::Lowest,
-        filter: VideoSearchOptions::Audio,
         ..Default::default()
     };
 

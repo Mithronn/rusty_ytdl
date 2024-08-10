@@ -27,16 +27,16 @@ pub struct VideoInfo {
 #[derive(Clone, derive_more::Display)]
 pub enum VideoSearchOptions {
     /// Video & Audio
-    #[display(fmt = "Video & Audio")]
+    #[display("Video & Audio")]
     VideoAudio,
     /// Only Video
-    #[display(fmt = "Video")]
+    #[display("Video")]
     Video,
     /// Only Audio
-    #[display(fmt = "Audio")]
+    #[display("Audio")]
     Audio,
     /// Custom filter
-    #[display(fmt = "Custom")]
+    #[display("Custom")]
     Custom(Arc<dyn Fn(&VideoFormat) -> bool + Sync + Send + 'static>),
 }
 
@@ -72,25 +72,25 @@ type CustomVideoQualityComparator =
 #[derive(Clone, derive_more::Display)]
 pub enum VideoQuality {
     /// Highest Video & Audio
-    #[display(fmt = "Highest")]
+    #[display("Highest")]
     Highest,
     /// Lowest Video & Audio
-    #[display(fmt = "Lowest")]
+    #[display("Lowest")]
     Lowest,
     /// Only Highest Audio
-    #[display(fmt = "Highest Audio")]
+    #[display("Highest Audio")]
     HighestAudio,
     /// Only Lowest Audio
-    #[display(fmt = "Lowest Audio")]
+    #[display("Lowest Audio")]
     LowestAudio,
     /// Only Highest Video
-    #[display(fmt = "Highest Video")]
+    #[display("Highest Video")]
     HighestVideo,
     /// Only Lowest Video
-    #[display(fmt = "Lowest Video")]
+    #[display("Lowest Video")]
     LowestVideo,
     /// Custom ranking function and filter
-    #[display(fmt = "Custom")]
+    #[display("Custom")]
     Custom(VideoSearchOptions, CustomVideoQualityComparator),
 }
 
@@ -128,7 +128,7 @@ impl PartialEq for VideoQuality {
 
 /// Video search and download options
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
-#[display(fmt = "VideoOptions(quality: {quality}, filter: {filter})")]
+#[display("VideoOptions(quality: {quality}, filter: {filter})")]
 #[derivative(Debug, PartialEq, Eq)]
 pub struct VideoOptions {
     pub quality: VideoQuality,
@@ -151,14 +151,16 @@ impl Default for VideoOptions {
 
 /// Video download options
 #[derive(Clone, PartialEq, Debug, Default, derive_more::Display)]
-#[display(fmt = "DownloadOptions()")]
+#[display("DownloadOptions(download chunk size: {dl_chunk_size:?})")]
 pub struct DownloadOptions {
     /// Maximum chunk size on per request
     pub dl_chunk_size: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, derive_more::Display)]
-#[display(fmt = "RequestOptions()")]
+#[display(
+    "RequestOptions(cookies: {cookies:?}, IPv6: {ipv6_block:?}, max retries: {max_retries:?})"
+)]
 pub struct RequestOptions {
     /// [`reqwest::Client`] to on use request. If provided in the request options `proxy`, `cookies`, and `ipv6_block` will be ignored
     ///
@@ -218,7 +220,7 @@ pub struct RequestOptions {
     ///     };
     /// ```
     pub ipv6_block: Option<String>,
-    /// Override the default number of retries to allow per web request (ie, per chunk downloaded)
+    /// Number of retries to allow per web request (ie, per chunk downloaded)
     /// Default is [`crate::constants::DEFAULT_MAX_RETRIES`].
     ///
     /// # Example
@@ -1007,6 +1009,8 @@ pub struct ErrorScreen {
 pub struct YTConfig {
     #[serde(rename = "STS")]
     pub sts: Option<u64>,
+    #[serde(rename = "WEB_PLAYER_CONTEXT_CONFIGS")]
+    pub web_player_context_configs: Option<serde_json::Value>,
 }
 
 pub struct CustomRetryableStrategy;

@@ -7,7 +7,7 @@ use crate::{block_async, VideoError};
 use serde::Serialize;
 
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
-#[display(fmt = "YouTube()")]
+#[display("YouTube()")]
 #[derivative(Debug, PartialEq, Eq)]
 pub struct YouTube(AsyncYouTube);
 

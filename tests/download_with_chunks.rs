@@ -1,12 +1,11 @@
 #[tokio::test]
 async fn download_with_chunks() {
-    use rusty_ytdl::{Video, VideoOptions, VideoQuality, VideoSearchOptions};
+    use rusty_ytdl::{Video, VideoOptions, VideoQuality};
 
     let url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc";
 
     let video_options = VideoOptions {
         quality: VideoQuality::Highest,
-        filter: VideoSearchOptions::VideoAudio,
         ..Default::default()
     };
 

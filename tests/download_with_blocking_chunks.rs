@@ -2,13 +2,12 @@
 fn download_with_blocking_chunks() {
     #[cfg(feature = "blocking")]
     {
-        use rusty_ytdl::{blocking::Video, VideoOptions, VideoQuality, VideoSearchOptions};
+        use rusty_ytdl::{blocking::Video, VideoOptions, VideoQuality};
 
         let url = "https://www.youtube.com/watch?v=FZ8BxMU3BYc";
 
         let video_options = VideoOptions {
             quality: VideoQuality::Highest,
-            filter: VideoSearchOptions::VideoAudio,
             ..Default::default()
         };
 

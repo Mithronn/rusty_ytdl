@@ -16,7 +16,7 @@ use urlencoding::decode;
 use crate::{
     constants::{
         AGE_RESTRICTED_URLS, AUDIO_ENCODING_RANKS, BASE_URL, FORMATS, IPV6_REGEX, PARSE_INT_REGEX,
-        VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
+        POTOKEN_EXPERIMENTS, VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
     },
     info_extras::{get_author, get_chapters, get_dislikes, get_likes, get_storyboards},
     structs::{
@@ -507,7 +507,7 @@ fn ncode(
     }
 
     #[cfg_attr(feature = "performance_analysis", flamer::flame)]
-    fn create_transform_script(script: &str) -> Option<Context<'_>> {
+    fn create_transform_script(script: &str) -> Option<Context> {
         let mut context = Context::default();
         context.eval(Source::from_bytes(script)).ok()?;
         Some(context)
@@ -961,7 +961,7 @@ pub fn is_private_video(player_response: &PlayerResponse) -> bool {
 }
 
 pub fn get_ytconfig(html: &str) -> Result<YTConfig, VideoError> {
-    static PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r#"ytcfg\.set\((\{.*\})\)"#).unwrap());
+    static PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r#"ytcfg\.set\((\{.*\})\);"#).unwrap());
     match PATTERN.captures(html) {
         Some(c) => Ok(
             serde_json::from_str::<YTConfig>(c.get(1).map_or("", |m| m.as_str()))
@@ -969,6 +969,29 @@ pub fn get_ytconfig(html: &str) -> Result<YTConfig, VideoError> {
         ),
         None => Err(VideoError::VideoSourceNotFound),
     }
+}
+
+pub fn check_experiments(html: &str) -> bool {
+    if let Some(configs) = get_ytconfig(html)
+        .ok()
+        .and_then(|x| x.web_player_context_configs.clone())
+        .and_then(|v| v.as_object().cloned())
+    {
+        return configs.iter().any(|(_, config)| {
+            config
+                .get("serializedExperimentIds")
+                .and_then(|v| v.as_str())
+                .map(|ids| {
+                    let ids_set = ids.split(',').collect::<Vec<&str>>();
+                    POTOKEN_EXPERIMENTS
+                        .iter()
+                        .any(|token| ids_set.contains(token))
+                })
+                .unwrap_or(false)
+        });
+    }
+
+    false
 }
 
 type CacheFunctions = Lazy<RwLock<Option<(String, Vec<(String, String)>)>>>;
