@@ -24,7 +24,7 @@ use crate::{
     utils::{
         between, check_experiments, choose_format, clean_video_details, get_functions, get_html,
         get_html5player, get_random_v6_ip, get_video_id, get_ytconfig, is_age_restricted_from_html,
-        is_not_yet_broadcasted, is_play_error, is_player_response_error, is_private_video,
+        is_live, is_not_yet_broadcasted, is_play_error, is_player_response_error, is_private_video,
         is_rental, parse_live_video_formats, parse_video_formats, sort_formats,
     },
 };
@@ -182,7 +182,7 @@ impl Video {
         }
 
         // POToken experiment detected fallback to ios client (Webpage contains broken formats)
-        if check_experiments(&response) {
+        if check_experiments(&response) && !is_live(&player_response) {
             let ios_ytconfig = self
                 .get_player_ytconfig(
                     &response,

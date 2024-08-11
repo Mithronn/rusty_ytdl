@@ -649,6 +649,16 @@ pub fn get_text(obj: &serde_json::Value) -> &serde_json::Value {
 }
 
 #[cfg_attr(feature = "performance_analysis", flamer::flame)]
+pub fn is_live(player_response: &PlayerResponse) -> bool {
+    let video_details = player_response.video_details.as_ref();
+
+    video_details
+        .as_ref()
+        .and_then(|x| x.is_live_content)
+        .unwrap_or(false)
+}
+
+#[cfg_attr(feature = "performance_analysis", flamer::flame)]
 pub fn clean_video_details(
     initial_response: &serde_json::Value,
     player_response: &PlayerResponse,
@@ -804,10 +814,7 @@ pub fn clean_video_details(
             .as_ref()
             .and_then(|x| x.is_unplugged_corpus)
             .unwrap_or(false),
-        is_live_content: video_details
-            .as_ref()
-            .and_then(|x| x.is_live_content)
-            .unwrap_or(false),
+        is_live_content: is_live(player_response),
         thumbnails: [
             video_details
                 .as_ref()
