@@ -4,6 +4,7 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 use std::{
+    borrow::Cow,
     cmp::Ordering,
     fmt::{Debug, Formatter, Result as fmtResult},
     ops::{Bound, RangeBounds},
@@ -146,6 +147,18 @@ impl Default for VideoOptions {
             download_options: DownloadOptions::default(),
             request_options: RequestOptions::default(),
         }
+    }
+}
+
+impl<'opts> From<&'opts VideoOptions> for Cow<'opts, VideoOptions> {
+    fn from(value: &'opts VideoOptions) -> Self {
+        Cow::Borrowed(value)
+    }
+}
+
+impl From<VideoOptions> for Cow<'static, VideoOptions> {
+    fn from(value: VideoOptions) -> Self {
+        Cow::Owned(value)
     }
 }
 

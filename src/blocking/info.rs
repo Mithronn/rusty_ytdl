@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::borrow::Cow;
 
 use crate::block_async;
 #[cfg(feature = "live")]
@@ -17,18 +18,23 @@ use super::stream::{NonLiveStreamOptions, Stream};
 use crate::structs::FFmpegArgs;
 
 #[derive(Clone, Debug, derive_more::Display, PartialEq, Eq)]
-pub struct Video(AsyncVideo);
+/// If a video was created with a reference to options, it is tied to their lifetime `'opts`.
+pub struct Video<'opts>(AsyncVideo<'opts>);
 
-impl Video {
+impl Video<'static> {
     /// Crate [`Video`] struct to get info or download with default [`VideoOptions`]
     pub fn new(url_or_id: impl Into<String>) -> Result<Self, VideoError> {
         Ok(Self(AsyncVideo::new(url_or_id)?))
     }
+}
 
+impl<'opts> Video<'opts> {
     /// Crate [`Video`] struct to get info or download with custom [`VideoOptions`]
+    /// `VideoOptions` can be passed by value or by reference, if passed by
+    /// reference, returned `Video` will be tied to the lifetime of the `VideoOptions`.
     pub fn new_with_options(
         url_or_id: impl Into<String>,
-        options: VideoOptions,
+        options: impl Into<Cow<'opts, VideoOptions>>,
     ) -> Result<Self, VideoError> {
         Ok(Self(AsyncVideo::new_with_options(url_or_id, options)?))
     }
@@ -251,15 +257,15 @@ impl Video {
     }
 }
 
-impl std::ops::Deref for Video {
-    type Target = AsyncVideo;
+impl<'opts> std::ops::Deref for Video<'opts> {
+    type Target = AsyncVideo<'opts>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl std::ops::DerefMut for Video {
+impl<'opts> std::ops::DerefMut for Video<'opts> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
