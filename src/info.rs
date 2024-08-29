@@ -6,7 +6,7 @@ use reqwest::{
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use scraper::{Html, Selector};
-use std::{path::Path, time::Duration};
+use std::{borrow::{Borrow, Cow}, path::Path, time::Duration};
 use url::Url;
 
 #[cfg(feature = "live")]
@@ -32,14 +32,15 @@ use crate::{
 #[derive(Clone, derive_more::Display, derivative::Derivative)]
 #[display("Video({video_id})")]
 #[derivative(Debug, PartialEq, Eq)]
-pub struct Video {
+/// If a video was created with a reference to options, it is tied to their lifetime `'opts`.
+pub struct Video<'opts> {
     video_id: String,
-    options: VideoOptions,
+    options: Cow<'opts, VideoOptions>,
     #[derivative(PartialEq = "ignore")]
     client: ClientWithMiddleware,
 }
 
-impl Video {
+impl Video<'static> {
     /// Crate [`Video`] struct to get info or download with default [`VideoOptions`]
     #[cfg_attr(feature = "performance_analysis", flamer::flame)]
     pub fn new(url_or_id: impl Into<String>) -> Result<Self, VideoError> {
@@ -59,16 +60,21 @@ impl Video {
 
         Ok(Self {
             video_id,
-            options: VideoOptions::default(),
+            options: Cow::Owned(VideoOptions::default()),
             client,
         })
     }
+}
 
+impl<'opts> Video<'opts> {
     /// Crate [`Video`] struct to get info or download with custom [`VideoOptions`]
+    /// `VideoOptions` can be passed by value or by reference, if passed by
+    /// reference, returned `Video` will be tied to the lifetime of the `VideoOptions`.
     pub fn new_with_options(
         url_or_id: impl Into<String>,
-        options: VideoOptions,
+        options: impl Into<Cow<'opts, VideoOptions>>,
     ) -> Result<Self, VideoError> {
+        let options = options.into();
         let video_id = get_video_id(&url_or_id.into()).ok_or(VideoError::VideoNotFound)?;
 
         let client = match options.request_options.client.clone() {
@@ -506,8 +512,8 @@ impl Video {
 
     // Necessary to blocking api
     #[allow(dead_code)]
-    pub(crate) fn get_options(&self) -> VideoOptions {
-        self.options.clone()
+    pub(crate) fn get_options(&self) -> &VideoOptions {
+        &self.options
     }
 
     #[cfg_attr(feature = "performance_analysis", flamer::flame)]
