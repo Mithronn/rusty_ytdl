@@ -16,7 +16,7 @@ use urlencoding::decode;
 use crate::{
     constants::{
         AGE_RESTRICTED_URLS, AUDIO_ENCODING_RANKS, BASE_URL, FORMATS, IPV6_REGEX, PARSE_INT_REGEX,
-        POTOKEN_EXPERIMENTS, VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
+        VALID_QUERY_DOMAINS, VIDEO_ENCODING_RANKS,
     },
     info_extras::{get_author, get_chapters, get_dislikes, get_likes, get_storyboards},
     structs::{
@@ -994,29 +994,6 @@ pub fn get_ytconfig(html: &str) -> Result<YTConfig, VideoError> {
         ),
         None => Err(VideoError::VideoSourceNotFound),
     }
-}
-
-pub fn check_experiments(html: &str) -> bool {
-    if let Some(configs) = get_ytconfig(html)
-        .ok()
-        .and_then(|x| x.web_player_context_configs.clone())
-        .and_then(|v| v.as_object().cloned())
-    {
-        return configs.iter().any(|(_, config)| {
-            config
-                .get("serializedExperimentIds")
-                .and_then(|v| v.as_str())
-                .map(|ids| {
-                    let ids_set = ids.split(',').collect::<Vec<&str>>();
-                    POTOKEN_EXPERIMENTS
-                        .iter()
-                        .any(|token| ids_set.contains(token))
-                })
-                .unwrap_or(false)
-        });
-    }
-
-    false
 }
 
 type CacheFunctions = Lazy<RwLock<Option<(String, Vec<(String, String)>)>>>;
