@@ -52,8 +52,6 @@ pub(crate) const DEFAULT_DL_CHUNK_SIZE: u64 = 10485760;
 /// Default max number of retries for a web reqwest.
 pub(crate) const DEFAULT_MAX_RETRIES: u32 = 3;
 
-pub(crate) const POTOKEN_EXPERIMENTS: &[&str] = &["51217476", "51217102"];
-
 pub static INNERTUBE_CLIENT: Lazy<HashMap<&str, (&str, &str, &str)>> =
     // (clientVersion, clientName, json value)
     Lazy::new(|| {

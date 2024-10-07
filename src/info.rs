@@ -6,6 +6,7 @@ use reqwest::{
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use scraper::{Html, Selector};
+use serde_json::json;
 use std::{borrow::{Borrow, Cow}, path::Path, time::Duration};
 use url::Url;
 
@@ -22,7 +23,7 @@ use crate::{
         CustomRetryableStrategy, PlayerResponse, VideoError, VideoInfo, VideoOptions, YTConfig,
     },
     utils::{
-        between, check_experiments, choose_format, clean_video_details, get_functions, get_html,
+        between, choose_format, clean_video_details, get_functions, get_html,
         get_html5player, get_random_v6_ip, get_video_id, get_ytconfig, is_age_restricted_from_html,
         is_live, is_not_yet_broadcasted, is_play_error, is_player_response_error, is_private_video,
         is_rental, parse_live_video_formats, parse_video_formats, sort_formats,
@@ -188,11 +189,12 @@ impl<'opts> Video<'opts> {
         }
 
         // POToken experiment detected fallback to ios client (Webpage contains broken formats)
-        if check_experiments(&response) && !is_live(&player_response) {
+        if !is_live(&player_response) {
             let ios_ytconfig = self
                 .get_player_ytconfig(
                     &response,
                     INNERTUBE_CLIENT.get("ios").cloned().unwrap_or_default(),
+                    self.options.request_options.po_token.as_ref()
                 )
                 .await?;
 
@@ -210,6 +212,7 @@ impl<'opts> Video<'opts> {
                         .get("tv_embedded")
                         .cloned()
                         .unwrap_or_default(),
+                    self.options.request_options.po_token.as_ref()
                 )
                 .await?;
 
@@ -521,6 +524,7 @@ impl<'opts> Video<'opts> {
         &self,
         html: &str,
         configs: (&str, &str, &str),
+        po_token: Option<&String>,
     ) -> Result<String, VideoError> {
         use std::str::FromStr;
 
@@ -530,7 +534,7 @@ impl<'opts> Video<'opts> {
         let sts = ytcfg.sts.unwrap_or(0);
         let video_id = self.get_video_id();
 
-        let query = serde_json::from_str::<serde_json::Value>(&format!(
+        let mut query = serde_json::from_str::<serde_json::Value>(&format!(
             r#"{{
             {client}
             "playbackContext": {{
@@ -543,6 +547,15 @@ impl<'opts> Video<'opts> {
         }}"#
         ))
         .unwrap_or_default();
+        if let Some(po_token) = po_token {
+            query
+                .as_object_mut()
+                .expect("Declared as object above")
+                .insert(
+                    "serviceIntegrityDimensions".to_string(),
+                    json!({"poToken": po_token})
+                );
+        }
 
         static CONFIGS: Lazy<(HeaderMap, &str)> = Lazy::new(|| {
             (HeaderMap::from_iter([
