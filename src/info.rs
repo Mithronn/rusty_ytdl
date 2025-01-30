@@ -23,10 +23,7 @@ use crate::{
         CustomRetryableStrategy, PlayerResponse, VideoError, VideoInfo, VideoOptions, YTConfig,
     },
     utils::{
-        between, choose_format, clean_video_details, get_functions, get_html,
-        get_html5player, get_random_v6_ip, get_video_id, get_ytconfig, is_age_restricted_from_html,
-        is_live, is_not_yet_broadcasted, is_play_error, is_player_response_error, is_private_video,
-        is_rental, parse_live_video_formats, parse_video_formats, sort_formats,
+        between, choose_format, clean_video_details, get_functions, get_html, get_html5player, get_random_v6_ip, get_video_id, get_visitor_data, get_ytconfig, is_age_restricted_from_html, is_live, is_not_yet_broadcasted, is_play_error, is_player_response_error, is_private_video, is_rental, parse_live_video_formats, parse_video_formats, sort_formats
     },
 };
 
@@ -534,6 +531,8 @@ impl<'opts> Video<'opts> {
         let sts = ytcfg.sts.unwrap_or(0);
         let video_id = self.get_video_id();
 
+        let visitor_data = get_visitor_data(&html)?;
+
         let mut query = serde_json::from_str::<serde_json::Value>(&format!(
             r#"{{
             {client}
@@ -577,6 +576,10 @@ impl<'opts> Video<'opts> {
         headers.insert(
             HeaderName::from_str("X-Youtube-Client-Name").unwrap(),
             HeaderValue::from_str(configs.1).unwrap(),
+        );
+        headers.insert(
+            HeaderName::from_str("X-Goog-Visitor-Id").unwrap(),
+            HeaderValue::from_str(&visitor_data).unwrap()
         );
 
         let response = self

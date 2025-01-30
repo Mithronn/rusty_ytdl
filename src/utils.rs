@@ -996,6 +996,15 @@ pub fn get_ytconfig(html: &str) -> Result<YTConfig, VideoError> {
     }
 }
 
+pub fn get_visitor_data(html: &str) -> Result<String, VideoError> {
+    static PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r#""visitorData":"([^"]+)""#).unwrap());
+
+    match PATTERN.captures(html) {
+        Some(c) => Ok(c.get(1).map_or("", |m| m.as_str()).to_string()),
+        None => Err(VideoError::VideoSourceNotFound),
+    }
+}
+
 type CacheFunctions = Lazy<RwLock<Option<(String, Vec<(String, String)>)>>>;
 static FUNCTIONS: CacheFunctions = Lazy::new(|| RwLock::new(None));
 
