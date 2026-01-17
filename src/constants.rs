@@ -39,6 +39,11 @@ pub(crate) static DEFAULT_HEADERS: Lazy<HeaderMap> = Lazy::new(|| {
     headers
 });
 
+/// GDPR consent cookie to bypass YouTube consent wall for EU users.
+/// This cookie indicates the user has accepted minimal cookies.
+pub(crate) const CONSENT_COOKIE: &str =
+    "SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgOmgpwY";
+
 pub(crate) static IPV6_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^(([0-9a-f]{1,4}:)(:[0-9a-f]{1,4}){1,6}|([0-9a-f]{1,4}:){1,2}(:[0-9a-f]{1,4}){1,5}|([0-9a-f]{1,4}:){1,3}(:[0-9a-f]{1,4}){1,4}|([0-9a-f]{1,4}:){1,4}(:[0-9a-f]{1,4}){1,3}|([0-9a-f]{1,4}:){1,5}(:[0-9a-f]{1,4}){1,2}|([0-9a-f]{1,4}:){1,6}(:[0-9a-f]{1,4})|([0-9a-f]{1,4}:){1,7}(([0-9a-f]{1,4})|:))/(1[0-1]\d|12[0-8]|\d{1,2})$").unwrap()
 });

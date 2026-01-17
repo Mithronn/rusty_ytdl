@@ -295,8 +295,8 @@ pub enum VideoError {
     #[error("{0} is not a playlist URL")]
     IsNotPlaylist(String),
     /// Playlist body cannot parsed
-    #[error("Playlist body cannot parsed")]
-    PlaylistBodyCannotParsed,
+    #[error("Playlist body cannot be parsed: {0}")]
+    PlaylistBodyCannotParsed(String),
     /// Download error
     #[error("Download Error: {0}")]
     DownloadError(String),

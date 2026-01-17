@@ -9,7 +9,7 @@ use urlencoding::encode;
 use super::LanguageTags;
 pub use crate::structs::RequestOptions;
 use crate::{
-    constants::DEFAULT_HEADERS,
+    constants::{CONSENT_COOKIE, DEFAULT_HEADERS},
     structs::VideoError,
     utils::{get_html, get_random_v6_ip, time_to_ms},
     Thumbnail,
@@ -464,6 +464,9 @@ pub struct Playlist {
     pub views: u64,
     pub videos: Vec<Video>,
     pub last_update: Option<String>,
+    /// Whether this is a YouTube "course" or learning playlist.
+    /// Course playlists don't have per-video channel info.
+    pub is_course: bool,
 
     #[serde(skip_serializing)]
     #[derivative(PartialEq = "ignore")]
@@ -561,12 +564,15 @@ impl Playlist {
         let client = client.build().map_err(VideoError::Reqwest)?;
         let client = reqwest_middleware::ClientBuilder::new(client).build();
 
-        let html_first = get_html(
-            &client,
-            format!("{url}&hl=en"),
-            Some(&DEFAULT_HEADERS.clone()),
-        )
-        .await?;
+        // Build headers with consent cookie to bypass GDPR consent wall
+        let mut headers = DEFAULT_HEADERS.clone();
+        headers.insert(
+            reqwest::header::COOKIE,
+            reqwest::header::HeaderValue::from_str(CONSENT_COOKIE)
+                .expect("CONSENT_COOKIE should be valid ASCII"),
+        );
+
+        let html_first = get_html(&client, format!("{url}&hl=en"), Some(&headers)).await?;
 
         // Get playlist datas
         let html = {
@@ -599,7 +605,88 @@ impl Playlist {
 
             // if contents found try to format values
             if !contents.is_null() && !playlist_primary_data.is_null() {
-                let videos = Self::get_playlist_videos(contents, Some(options.limit));
+                // Extract playlist channel first for use in video parsing (course playlist fallback)
+                let playlist_channel = Channel {
+                    id: playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]["title"]
+                        ["runs"][0]["navigationEndpoint"]["browseEndpoint"]["browseId"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string(),
+                    name: playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]["title"]
+                        ["runs"][0]["text"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string(),
+                    url: if playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]
+                        ["navigationEndpoint"]["commandMetadata"]["webCommandMetadata"]["url"]
+                        .is_string()
+                    {
+                        playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]
+                            ["navigationEndpoint"]["commandMetadata"]["webCommandMetadata"]["url"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string()
+                    } else if playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]
+                        ["navigationEndpoint"]["browseEndpoint"]["canonicalBaseUrl"]
+                        .is_string()
+                    {
+                        playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]
+                            ["navigationEndpoint"]["browseEndpoint"]["canonicalBaseUrl"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string()
+                    } else {
+                        String::from("")
+                    },
+                    icon: if playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]
+                        ["thumbnail"]["thumbnails"]
+                        .is_array()
+                    {
+                        playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]["thumbnail"]
+                            ["thumbnails"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|x| Thumbnail {
+                                width: x
+                                    .get("width")
+                                    .and_then(|x| {
+                                        if x.is_string() {
+                                            x.as_str().map(|x| x.parse::<i64>().unwrap_or_default())
+                                        } else {
+                                            x.as_i64()
+                                        }
+                                    })
+                                    .unwrap_or(0i64) as u64,
+                                height: x
+                                    .get("height")
+                                    .and_then(|x| {
+                                        if x.is_string() {
+                                            x.as_str().map(|x| x.parse::<i64>().unwrap_or_default())
+                                        } else {
+                                            x.as_i64()
+                                        }
+                                    })
+                                    .unwrap_or(0i64) as u64,
+                                url: x
+                                    .get("url")
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            })
+                            .collect::<Vec<Thumbnail>>()
+                    } else {
+                        vec![]
+                    },
+                    verified: false,
+                    subscribers: 0,
+                };
+
+                let videos = Self::get_playlist_videos(
+                    contents,
+                    Some(options.limit),
+                    Some(&playlist_channel),
+                );
 
                 let videos_length = videos.len();
                 let mut playlist = Playlist {
@@ -626,86 +713,7 @@ impl Playlist {
                     } else {
                         String::from("")
                     },
-                    channel: Channel {
-                        id: playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]["title"]
-                            ["runs"][0]["navigationEndpoint"]["browseEndpoint"]["browseId"]
-                            .as_str()
-                            .unwrap_or("")
-                            .to_string(),
-                        name: playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]["title"]
-                            ["runs"][0]["text"]
-                            .as_str()
-                            .unwrap_or("")
-                            .to_string(),
-                        url: if playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]
-                            ["navigationEndpoint"]["commandMetadata"]["webCommandMetadata"]["url"]
-                            .is_string()
-                        {
-                            playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]
-                                ["navigationEndpoint"]["commandMetadata"]["webCommandMetadata"]
-                                ["url"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string()
-                        } else if playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]
-                            ["navigationEndpoint"]["browseEndpoint"]["canonicalBaseUrl"]
-                            .is_string()
-                        {
-                            playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]
-                                ["navigationEndpoint"]["browseEndpoint"]["canonicalBaseUrl"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string()
-                        } else {
-                            String::from("")
-                        },
-                        icon: if playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]
-                            ["thumbnail"]["thumbnails"]
-                            .is_array()
-                        {
-                            playlist_secondary_data["videoOwner"]["videoOwnerRenderer"]["thumbnail"]
-                                ["thumbnails"]
-                                .as_array()
-                                .unwrap()
-                                .iter()
-                                .map(|x| Thumbnail {
-                                    width: x
-                                        .get("width")
-                                        .and_then(|x| {
-                                            if x.is_string() {
-                                                x.as_str()
-                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
-                                            } else {
-                                                x.as_i64()
-                                            }
-                                        })
-                                        .unwrap_or(0i64)
-                                        as u64,
-                                    height: x
-                                        .get("height")
-                                        .and_then(|x| {
-                                            if x.is_string() {
-                                                x.as_str()
-                                                    .map(|x| x.parse::<i64>().unwrap_or_default())
-                                            } else {
-                                                x.as_i64()
-                                            }
-                                        })
-                                        .unwrap_or(0i64)
-                                        as u64,
-                                    url: x
-                                        .get("url")
-                                        .and_then(|x| x.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
-                                })
-                                .collect::<Vec<Thumbnail>>()
-                        } else {
-                            vec![]
-                        },
-                        verified: false,
-                        subscribers: 0,
-                    },
+                    channel: playlist_channel,
                     thumbnails: if playlist_primary_data["thumbnailRenderer"]
                         ["playlistVideoThumbnailRenderer"]["thumbnail"]["thumbnails"]
                         .is_array()
@@ -798,6 +806,12 @@ impl Playlist {
                         client_version: Some(get_client_version(&html_first)),
                     }),
                     client,
+                    // Detect course playlist: videos lack shortBylineText
+                    is_course: contents
+                        .as_array()
+                        .and_then(|arr| arr.first())
+                        .map(|v| v["playlistVideoRenderer"]["shortBylineText"].is_null())
+                        .unwrap_or(false),
                 };
 
                 // we will try to fetch all videos from playlist
@@ -813,7 +827,11 @@ impl Playlist {
             }
         }
 
-        Err(VideoError::PlaylistBodyCannotParsed)
+        Err(VideoError::PlaylistBodyCannotParsed(if html.is_empty() {
+            "ytInitialData not found - possibly consent wall or invalid page".to_string()
+        } else {
+            "playlist data structure not recognized".to_string()
+        }))
     }
 
     /// Get next chunk of videos from playlist and return fetched [`Video`] array.
@@ -933,7 +951,7 @@ impl Playlist {
             return Ok(vec![]);
         }
 
-        let fetched_videos = Self::get_playlist_videos(&contents, Some(limit));
+        let fetched_videos = Self::get_playlist_videos(&contents, Some(limit), Some(&self.channel));
 
         self.continuation = Some(Continuation {
             token: Self::get_continuation_token(&contents),
@@ -1065,7 +1083,11 @@ impl Playlist {
         ))
     }
 
-    fn get_playlist_videos(container: &serde_json::Value, limit: Option<u64>) -> Vec<Video> {
+    fn get_playlist_videos(
+        container: &serde_json::Value,
+        limit: Option<u64>,
+        fallback_channel: Option<&Channel>,
+    ) -> Vec<Video> {
         let limit = limit.unwrap_or(u64::MAX);
 
         let mut videos: Vec<Video> = vec![];
@@ -1081,8 +1103,8 @@ impl Playlist {
             }
 
             let video = &info["playlistVideoRenderer"];
-            // video not proper type skip it!
-            if video.is_null() || video["shortBylineText"].is_null() {
+            // video not proper type skip it - only require videoId to be present
+            if video.is_null() || video["videoId"].is_null() {
                 continue;
             }
 
@@ -1147,44 +1169,58 @@ impl Playlist {
                 } else {
                     vec![]
                 },
-                channel: Channel {
-                    id: video["shortBylineText"]["runs"][0]["navigationEndpoint"]["browseEndpoint"]
-                        ["browseId"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string(),
-                    name: video["shortBylineText"]["runs"][0]["text"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string(),
-                    url: if video["shortBylineText"]["runs"][0]["navigationEndpoint"]
-                        ["browseEndpoint"]["canonicalBaseUrl"]
-                        .is_string()
-                    {
-                        format!(
-                            "https://www.youtube.com{}",
-                            video["shortBylineText"]["runs"][0]["navigationEndpoint"]
-                                ["browseEndpoint"]["canonicalBaseUrl"]
-                                .as_str()
-                                .unwrap_or("")
-                        )
-                    } else if video["shortBylineText"]["runs"][0]["navigationEndpoint"]
-                        ["commandMetadata"]["webCommandMetadata"]["url"]
-                        .is_string()
-                    {
-                        format!(
-                            "https://www.youtube.com{}",
-                            video["shortBylineText"]["runs"][0]["navigationEndpoint"]
-                                ["commandMetadata"]["webCommandMetadata"]["url"]
-                                .as_str()
-                                .unwrap_or("")
-                        )
-                    } else {
-                        String::from("")
-                    },
-                    icon: vec![],
-                    verified: false,
-                    subscribers: 0,
+                channel: if !video["shortBylineText"].is_null() {
+                    Channel {
+                        id: video["shortBylineText"]["runs"][0]["navigationEndpoint"]
+                            ["browseEndpoint"]["browseId"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string(),
+                        name: video["shortBylineText"]["runs"][0]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string(),
+                        url: if video["shortBylineText"]["runs"][0]["navigationEndpoint"]
+                            ["browseEndpoint"]["canonicalBaseUrl"]
+                            .is_string()
+                        {
+                            format!(
+                                "https://www.youtube.com{}",
+                                video["shortBylineText"]["runs"][0]["navigationEndpoint"]
+                                    ["browseEndpoint"]["canonicalBaseUrl"]
+                                    .as_str()
+                                    .unwrap_or("")
+                            )
+                        } else if video["shortBylineText"]["runs"][0]["navigationEndpoint"]
+                            ["commandMetadata"]["webCommandMetadata"]["url"]
+                            .is_string()
+                        {
+                            format!(
+                                "https://www.youtube.com{}",
+                                video["shortBylineText"]["runs"][0]["navigationEndpoint"]
+                                    ["commandMetadata"]["webCommandMetadata"]["url"]
+                                    .as_str()
+                                    .unwrap_or("")
+                            )
+                        } else {
+                            String::from("")
+                        },
+                        icon: vec![],
+                        verified: false,
+                        subscribers: 0,
+                    }
+                } else if let Some(channel) = fallback_channel {
+                    // Course playlists don't have per-video channel info, use playlist owner
+                    channel.clone()
+                } else {
+                    Channel {
+                        id: String::new(),
+                        name: String::new(),
+                        url: String::new(),
+                        icon: vec![],
+                        verified: false,
+                        subscribers: 0,
+                    }
                 },
                 uploaded_at: None,
                 views: 0,
@@ -2089,6 +2125,8 @@ fn format_search_result(
                         // continuation not available in search
                         continuation: None,
                         client: client.clone(),
+                        // Unknown for search results - will be detected when fetched
+                        is_course: false,
                     };
 
                     res.push(SearchResult::Playlist(playlist));

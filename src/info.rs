@@ -202,7 +202,7 @@ impl<'opts> Video<'opts> {
                         .get("android_sdkless")
                         .cloned()
                         .unwrap_or_default(),
-                    self.options.request_options.po_token.as_ref()
+                    self.options.request_options.po_token.as_ref(),
                 )
                 .await?;
 
@@ -220,7 +220,7 @@ impl<'opts> Video<'opts> {
                         .get("tv_embedded")
                         .cloned()
                         .unwrap_or_default(),
-                    self.options.request_options.po_token.as_ref()
+                    self.options.request_options.po_token.as_ref(),
                 )
                 .await?;
 
@@ -563,7 +563,7 @@ impl<'opts> Video<'opts> {
                 .expect("Declared as object above")
                 .insert(
                     "serviceIntegrityDimensions".to_string(),
-                    json!({"poToken": po_token})
+                    json!({"poToken": po_token}),
                 );
         }
 
@@ -590,7 +590,7 @@ impl<'opts> Video<'opts> {
         );
         headers.insert(
             HeaderName::from_str("X-Goog-Visitor-Id").unwrap(),
-            HeaderValue::from_str(&visitor_data).unwrap()
+            HeaderValue::from_str(&visitor_data).unwrap(),
         );
 
         let response = self

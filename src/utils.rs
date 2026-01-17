@@ -1216,7 +1216,7 @@ pub fn get_random_v6_ip(ip: impl Into<String>) -> Result<IpAddr, VideoError> {
     }
 
     let base_10_addr = normalize_ip(*raw_addr);
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut random_addr = [0u16; 8];
     rng.fill(&mut random_addr);
