@@ -112,6 +112,26 @@ pub static INNERTUBE_CLIENT: Lazy<HashMap<&str, (&str, &str, &str)>> =
                 ),
             ),
             (
+                // See: yt_dlp Commit 309b03f and Commit c367457
+                "android_vr",
+                (
+                    "1.71.26",
+                    "28",
+                    r#""context": {
+                        "client": {
+                            "clientName": "ANDROID_VR",
+                            "clientVersion": "1.71.26",
+                            "deviceMake": "Oculus",
+                            "deviceModel": "Quest 3",
+                            "androidSdkVersion": 32,
+                            "userAgent": "com.google.android.apps.youtube.vr.oculus/1.71.26 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+                            "osName": "Android",
+                            "osVersion": "12L"
+                        }
+                    },"#,
+                ),
+            ),
+            (
                 // This client can access age restricted videos (unless the uploader has disabled the 'allow embedding' option)
                 // See: https://github.com/yt-dlp/yt-dlp/blob/28d485714fef88937c82635438afba5db81f9089/yt_dlp/extractor/youtube.py#L231
                 "tv_embedded",
