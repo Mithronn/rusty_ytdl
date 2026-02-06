@@ -193,13 +193,13 @@ impl<'opts> Video<'opts> {
             return Err(VideoError::VideoIsPrivate);
         }
 
-        // POToken experiment detected fallback to android_sdkless client (Webpage contains broken formats)
+        // POToken experiment detected fallback to android_vr client (Webpage contains broken formats)
         if !is_live(&player_response) {
             let ios_ytconfig = self
                 .get_player_ytconfig(
                     &response,
                     INNERTUBE_CLIENT
-                        .get("android_sdkless")
+                        .get("android_vr")
                         .cloned()
                         .unwrap_or_default(),
                     self.options.request_options.po_token.as_ref(),
